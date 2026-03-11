@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../api/api_client.dart';
 import '../api/supplier_api.dart';
 import '../models/supplier_order.dart';
 
@@ -56,7 +55,10 @@ class _SupplierOrdersPageState extends State<SupplierOrdersPage> {
     if (_isLoadingInitial) return;
     setState(() => _isLoadingInitial = true);
     try {
-      final response = await _api.getSupplierOrders(page: 1, pageSize: _pageSize);
+      final response = await _api.getSupplierOrders(
+        page: 1,
+        pageSize: _pageSize,
+      );
       if (!mounted) return;
       setState(() {
         _orders
@@ -75,7 +77,10 @@ class _SupplierOrdersPageState extends State<SupplierOrdersPage> {
 
   Future<void> _refresh() async {
     try {
-      final response = await _api.getSupplierOrders(page: 1, pageSize: _pageSize);
+      final response = await _api.getSupplierOrders(
+        page: 1,
+        pageSize: _pageSize,
+      );
       if (!mounted) return;
       setState(() {
         _orders
@@ -169,8 +174,8 @@ class _SupplierOrdersPageState extends State<SupplierOrdersPage> {
   void _showError(Object err) {
     final message = err is ApiException
         ? (err.message?.isNotEmpty == true
-            ? err.message!
-            : 'Request failed (${err.statusCode})')
+              ? err.message!
+              : 'Request failed (${err.statusCode})')
         : 'Something went wrong. Please try again.';
     _showSnackBar(message);
   }
@@ -214,7 +219,8 @@ class _SupplierOrdersPageState extends State<SupplierOrdersPage> {
                 controller: _scrollController,
                 padding: const EdgeInsets.all(16),
                 itemCount: _orders.length + (_isLoadingMore ? 1 : 0),
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
                 itemBuilder: (context, index) {
                   if (index >= _orders.length) {
                     return const Padding(
@@ -242,7 +248,9 @@ class _SupplierOrdersPageState extends State<SupplierOrdersPage> {
                               order.orderNumber.isEmpty
                                   ? 'Purchase Order'
                                   : order.orderNumber,
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                           _StatusChip(status: status),
@@ -267,15 +275,13 @@ class _SupplierOrdersPageState extends State<SupplierOrdersPage> {
                       children: [
                         const Divider(height: 1),
                         if (order.items.isEmpty)
-                          const ListTile(
-                            title: Text('No line items'),
-                          )
+                          const ListTile(title: Text('No line items'))
                         else
                           ...order.items.map(
                             (item) => ListTile(
                               title: Text(item.productName),
                               subtitle: Text(
-                                'Qty: ${item.quantity} • Unit: ${_formatMoney(item.unitPrice)}',
+                                'Qty: ${item.quantity} | Unit: ${_formatMoney(item.unitPrice)}',
                               ),
                             ),
                           ),
@@ -329,10 +335,7 @@ class _StatusChip extends StatelessWidget {
     return Chip(
       label: Text(
         label,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
       ),
       visualDensity: VisualDensity.compact,
       backgroundColor: color,

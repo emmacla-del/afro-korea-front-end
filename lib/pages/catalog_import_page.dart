@@ -1,11 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http;
 
-import '../api/api_client.dart';
+import '../services/api_service.dart';
 
 class CatalogImportPage extends StatefulWidget {
   const CatalogImportPage({super.key});
@@ -15,33 +13,23 @@ class CatalogImportPage extends StatefulWidget {
 }
 
 class _CatalogImportPageState extends State<CatalogImportPage> {
-  final ApiClient _apiClient = ApiClient();
-
   PlatformFile? _selectedFile;
   bool _isImporting = false;
   CatalogImportResult? _lastResult;
-
-  @override
-  void dispose() {
-    _apiClient.close();
-    super.dispose();
-  }
 
   Future<void> _selectFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['csv', 'xlsx'],
-        withData: kIsWeb,
+        withData: true,
       );
 
       if (!mounted) return;
       if (result == null || result.files.isEmpty) return;
 
       final picked = result.files.single;
-      final ext = (picked.extension ?? '')
-          .trim()
-          .toLowerCase();
+      final ext = (picked.extension ?? '').trim().toLowerCase();
 
       if (ext != 'csv' && ext != 'xlsx') {
         _showSnackBar('Only .csv and .xlsx files are supported.');
@@ -81,93 +69,33 @@ class _CatalogImportPageState extends State<CatalogImportPage> {
   }
 
   Future<CatalogImportResult> _uploadCatalogImport(PlatformFile file) async {
-    final uri = Uri.parse('${ApiClient.baseUrl}/supplier/catalog-imports');
-    final request = http.MultipartRequest('POST', uri);
-
-    final token = await _apiClient.tokenProvider();
-    if (token != null && token.isNotEmpty) {
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-    request.headers['accept'] = 'application/json';
-
-    if (file.bytes != null) {
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'file',
-          file.bytes!,
-          filename: file.name,
-        ),
-      );
-    } else if (file.path != null && file.path!.isNotEmpty) {
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          file.path!,
-          filename: file.name,
-        ),
-      );
-    } else {
-      throw const FormatException('Selected file is not accessible.');
-    }
-
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(
-        statusCode: response.statusCode,
-        reasonPhrase: response.reasonPhrase,
-        body: response.body,
-        message: _extractBackendError(response.body),
+    final ext = (file.extension ?? '').trim().toLowerCase();
+    if (ext != 'csv') {
+      throw const FormatException(
+        'Only CSV imports are supported by this backend endpoint.',
       );
     }
 
-    if (response.body.isEmpty) {
-      throw ApiException(
-        statusCode: response.statusCode,
-        reasonPhrase: response.reasonPhrase,
-        body: response.body,
-        message: 'Empty response from server',
-      );
-    }
+    final csvText = _readCsvText(file);
+    final body = <String, Object?>{
+      'products': _buildProductsPayloadFromCsv(csvText),
+    };
 
-    final json = jsonDecode(response.body);
-    if (json is! Map) {
-      throw ApiException(
-        statusCode: response.statusCode,
-        reasonPhrase: response.reasonPhrase,
-        body: response.body,
-        message: 'Unexpected response shape',
-      );
-    }
-
-    return CatalogImportResult.fromJson(Map<String, dynamic>.from(json));
-  }
-
-  String? _extractBackendError(String body) {
-    try {
-      final json = jsonDecode(body);
-      if (json is Map) {
-        final message = json['message'];
-        if (message is String && message.trim().isNotEmpty) {
-          return message.trim();
-        }
-        final error = json['error'];
-        if (error is String && error.trim().isNotEmpty) {
-          return error.trim();
-        }
-      }
-    } catch (_) {}
-    final trimmed = body.trim();
-    return trimmed.isEmpty ? null : trimmed;
+    final json = await ApiService.instance.post(
+      '/supplier/catalog/import',
+      data: Map<String, dynamic>.from(body),
+    );
+    return CatalogImportResult.fromJson(json);
   }
 
   String _errorMessage(Object err) {
     if (err is ApiException) {
-      if (err.message != null && err.message!.trim().isNotEmpty) {
-        return err.message!.trim();
+      if (err.message.trim().isNotEmpty) {
+        return err.message.trim();
       }
-      return 'Import failed (${err.statusCode})';
+      return err.statusCode == null
+          ? 'Import failed'
+          : 'Import failed (${err.statusCode})';
     }
     if (err is FormatException) {
       final msg = err.message.trim();
@@ -213,7 +141,9 @@ class _CatalogImportPageState extends State<CatalogImportPage> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    file == null ? 'No file selected' : 'Selected: ${file.name}',
+                    file == null
+                        ? 'No file selected'
+                        : 'Selected: ${file.name}',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: file == null
                           ? theme.colorScheme.outline
@@ -224,8 +154,9 @@ class _CatalogImportPageState extends State<CatalogImportPage> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed:
-                          _isImporting || file == null ? null : _uploadAndImport,
+                      onPressed: _isImporting || file == null
+                          ? null
+                          : _uploadAndImport,
                       child: _isImporting
                           ? Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -333,11 +264,28 @@ class CatalogImportResult {
   });
 
   factory CatalogImportResult.fromJson(Map<String, dynamic> json) {
+    final imported = json['imported'];
+    final errors = json['errors'];
+
+    int importedProducts = 0;
+    int importedVariants = 0;
+    if (imported is List) {
+      importedProducts = imported.length;
+      for (final item in imported.whereType<Map>()) {
+        final mapped = Map<String, dynamic>.from(item);
+        importedVariants += _asInt(mapped['createdVariants']) ?? 0;
+      }
+    }
+
+    final errorCount = errors is List
+        ? errors.length
+        : (_asInt(json['errors']) ?? 0);
+
     return CatalogImportResult(
       importId: (json['importId'] ?? '').toString(),
-      createdProducts: _asInt(json['createdProducts']) ?? 0,
-      createdVariants: _asInt(json['createdVariants']) ?? 0,
-      errors: _asInt(json['errors']) ?? 0,
+      createdProducts: _asInt(json['createdProducts']) ?? importedProducts,
+      createdVariants: _asInt(json['createdVariants']) ?? importedVariants,
+      errors: errorCount,
     );
   }
 }
@@ -347,4 +295,122 @@ int? _asInt(Object? value) {
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value);
   return null;
+}
+
+String _readCsvText(PlatformFile file) {
+  final bytes = file.bytes;
+  if (bytes == null || bytes.isEmpty) {
+    throw const FormatException('Selected file could not be read.');
+  }
+  return utf8.decode(bytes, allowMalformed: true);
+}
+
+List<Map<String, Object?>> _buildProductsPayloadFromCsv(String csvText) {
+  final lines = csvText
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+
+  if (lines.length < 2) {
+    throw const FormatException(
+      'CSV must include a header row and at least one data row.',
+    );
+  }
+
+  final headers = _splitCsvLine(
+    lines.first,
+  ).map((h) => h.trim().toLowerCase()).toList();
+  final idxName = headers.indexOf('product_name');
+  final idxDescription = headers.indexOf('description');
+  final idxCategory = headers.indexOf('category');
+  final idxSku = headers.indexOf('sku');
+  final idxUnitPrice = headers.indexOf('unitpricexaf');
+  final idxThreshold = headers.indexOf('thresholdqty');
+  final idxLeadTime = headers.indexOf('leadtimedays');
+
+  if (idxName < 0 || idxSku < 0 || idxUnitPrice < 0 || idxThreshold < 0) {
+    throw const FormatException(
+      'CSV headers must include: product_name, sku, unitPriceXaf, thresholdQty',
+    );
+  }
+
+  final grouped = <String, Map<String, Object?>>{};
+  for (final line in lines.skip(1)) {
+    final cols = _splitCsvLine(line);
+    final productName = _col(cols, idxName).trim();
+    final sku = _col(cols, idxSku).trim();
+    final unitPrice = int.tryParse(_col(cols, idxUnitPrice).trim());
+    final threshold = int.tryParse(_col(cols, idxThreshold).trim());
+
+    if (productName.isEmpty ||
+        sku.isEmpty ||
+        unitPrice == null ||
+        threshold == null) {
+      continue;
+    }
+
+    final key = productName.toLowerCase();
+    final product = grouped.putIfAbsent(key, () {
+      return <String, Object?>{
+        'product_name': productName,
+        if (idxDescription >= 0 && _col(cols, idxDescription).trim().isNotEmpty)
+          'description': _col(cols, idxDescription).trim(),
+        if (idxCategory >= 0 && _col(cols, idxCategory).trim().isNotEmpty)
+          'category': _col(cols, idxCategory).trim(),
+        'variants': <Map<String, Object?>>[],
+      };
+    });
+
+    final variants = product['variants'] as List<Map<String, Object?>>;
+    variants.add({
+      'sku': sku,
+      'unitPriceXaf': unitPrice,
+      'thresholdQty': threshold,
+      if (idxLeadTime >= 0)
+        if (int.tryParse(_col(cols, idxLeadTime).trim()) != null)
+          'leadTimeDays': int.parse(_col(cols, idxLeadTime).trim()),
+    });
+  }
+
+  final products = grouped.values.toList();
+  if (products.isEmpty) {
+    throw const FormatException('No valid rows found in CSV for import.');
+  }
+
+  return products;
+}
+
+List<String> _splitCsvLine(String line) {
+  final result = <String>[];
+  final current = StringBuffer();
+  var inQuotes = false;
+
+  for (var i = 0; i < line.length; i++) {
+    final ch = line[i];
+    if (ch == '"') {
+      if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+        current.write('"');
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch == ',' && !inQuotes) {
+      result.add(current.toString());
+      current.clear();
+      continue;
+    }
+
+    current.write(ch);
+  }
+  result.add(current.toString());
+  return result;
+}
+
+String _col(List<String> cols, int index) {
+  if (index < 0 || index >= cols.length) return '';
+  return cols[index];
 }

@@ -13,11 +13,13 @@ import 'supplier_products_page.dart';
 class SupplierDashboardPage extends StatefulWidget {
   final AppRole currentRole;
   final ValueChanged<AppRole> onRoleChanged;
+  final VoidCallback? onLogout;
 
   const SupplierDashboardPage({
     super.key,
     required this.currentRole,
     required this.onRoleChanged,
+    this.onLogout,
   });
 
   @override
@@ -91,6 +93,12 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
       appBar: AppBar(
         title: const Text('Supplier'),
         actions: [
+          if (widget.onLogout != null)
+            IconButton(
+              tooltip: 'Logout',
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout),
+            ),
           RoleSwitchAction(
             currentRole: widget.currentRole,
             onRoleChanged: widget.onRoleChanged,

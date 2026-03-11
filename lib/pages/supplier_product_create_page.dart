@@ -1,7 +1,10 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
-import '../api/api_client.dart';
 import '../api/supplier_api.dart';
+import '../services/user_store.dart';
 
 class SupplierProductCreatePage extends StatefulWidget {
   const SupplierProductCreatePage({super.key});
@@ -24,6 +27,10 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
   String _currency = 'XAF';
   bool _isSubmitting = false;
 
+  // Image picker
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<XFile> _selectedImages = [];
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -32,6 +39,99 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
     _priceController.dispose();
     _stockController.dispose();
     super.dispose();
+  }
+
+  /// Pick multiple images from gallery
+  Future<void> _pickImages() async {
+    final images = await _imagePicker.pickMultiImage();
+    if (images != null && images.isNotEmpty) {
+      setState(() {
+        _selectedImages.addAll(images);
+      });
+    }
+  }
+
+  /// Remove an image from the list
+  void _removeImage(int index) {
+    setState(() {
+      _selectedImages.removeAt(index);
+    });
+  }
+
+  /// Build grid of selected images with add button
+  Widget _buildImageGrid() {
+    const int crossAxisCount = 3;
+    int itemCount = _selectedImages.length + 1; // +1 for add button
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: 4,
+        mainAxisSpacing: 4,
+      ),
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        // Add button as the last tile
+        if (index == _selectedImages.length) {
+          return GestureDetector(
+            onTap: _pickImages,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate, size: 32),
+                  SizedBox(height: 4),
+                  Text('Add', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+          );
+        }
+        // Image tile – use FutureBuilder to display the image from bytes (works on web)
+        final image = _selectedImages[index];
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: FutureBuilder<Uint8List>(
+                future: image.readAsBytes(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.done &&
+                      snapshot.hasData) {
+                    return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                  }
+                  // Loading or error placeholder
+                  return Container(
+                    color: Colors.grey[300],
+                    child: const Center(child: CircularProgressIndicator()),
+                  );
+                },
+              ),
+            ),
+            Positioned(
+              top: 2,
+              right: 2,
+              child: GestureDetector(
+                onTap: () => _removeImage(index),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 18),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _submit() async {
@@ -55,33 +155,31 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
       return;
     }
 
+    debugPrint('[CREATE PRODUCT] name=$name');
+    debugPrint('[CREATE PRODUCT] price=$price');
+    debugPrint('[CREATE PRODUCT] storedUserId=${await UserStore.getUserId()}');
+
     setState(() => _isSubmitting = true);
-    late final String productId;
-    try {
-      productId = await _api.createProduct(
-        name: name,
-        description: description.isEmpty ? null : description,
-      );
-    } catch (err) {
-      if (!mounted) return;
-      _showSnack('Create product failed: ${_formatError(err)}');
-      setState(() => _isSubmitting = false);
-      return;
-    }
 
     try {
-      await _api.createVariant(
-        productId: productId,
+      // Call the combined method that sends product, variant, and images
+      debugPrint('📤 Sending product with ${_selectedImages.length} images');
+      final result = await _api.createProductWithImages(
+        name: name,
+        description: description.isEmpty ? null : description,
         sku: sku,
         price: price,
         stock: stock,
+        currency: _currency,
+        images: _selectedImages,
       );
 
+      debugPrint('✅ Product created with ID: ${result['id']}');
       if (!mounted) return;
       _showSnack('Product created');
       Navigator.of(context).pop(
         CreatedSupplierProduct(
-          id: productId,
+          id: result['id'],
           name: name,
           currency: _currency,
           sku: sku,
@@ -89,9 +187,12 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
           stock: stock,
         ),
       );
-    } catch (err) {
+    } catch (err, stack) {
+      debugPrint('❌ Error creating product: $err');
+      debugPrint('❌ Error type: ${err.runtimeType}');
+      debugPrint('❌ Stack trace: $stack');
       if (!mounted) return;
-      _showSnack('Variant failed for created product: ${_formatError(err)}');
+      _showSnack('Create product failed: ${_formatError(err)}');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -126,6 +227,7 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Product details card
             Card(
               elevation: 1,
               child: Padding(
@@ -209,6 +311,38 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
               ),
             ),
             const SizedBox(height: 12),
+
+            // Image picker card
+            Card(
+              elevation: 1,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Product images',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildImageGrid(),
+                    if (_selectedImages.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '${_selectedImages.length} image(s) selected',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Variant card
             Card(
               elevation: 1,
               child: Padding(
@@ -245,10 +379,9 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
                           child: TextFormField(
                             controller: _priceController,
                             enabled: !_isSubmitting,
-                            keyboardType:
-                                const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             decoration: const InputDecoration(
                               labelText: 'Price',
                               border: OutlineInputBorder(),
