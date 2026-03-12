@@ -1,4 +1,4 @@
-enum AppRole { customer, supplier }
+enum AppRole { customer, supplier, admin }
 
 extension AppRoleLabel on AppRole {
   String get label {
@@ -7,6 +7,8 @@ extension AppRoleLabel on AppRole {
         return 'Customer';
       case AppRole.supplier:
         return 'Supplier';
+      case AppRole.admin:
+        return 'Admin';
     }
   }
 }

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -44,7 +43,7 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
   /// Pick multiple images from gallery
   Future<void> _pickImages() async {
     final images = await _imagePicker.pickMultiImage();
-    if (images != null && images.isNotEmpty) {
+    if (images.isNotEmpty) {
       setState(() {
         _selectedImages.addAll(images);
       });

@@ -27,29 +27,53 @@ class SupplierOrder {
     final rawItems = json['items'];
     final items = rawItems is List
         ? rawItems
-            .whereType<Map>()
-            .map((e) => SupplierOrderItem.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map(
+                (e) => SupplierOrderItem.fromJson(Map<String, dynamic>.from(e)),
+              )
+              .toList()
         : <SupplierOrderItem>[];
+
+    final events = _asList(json['events']);
+    final shippedEvent = events
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .firstWhere(
+          (e) =>
+              (e['status'] ?? '').toString().trim().toUpperCase() == 'SHIPPED',
+          orElse: () => const <String, dynamic>{},
+        );
+
+    final totalAmount =
+        _asDouble(json['totalAmount']) ??
+        _asDouble(json['amountXaf']) ??
+        items.fold<double>(
+          0,
+          (sum, item) => sum + (item.quantity * item.unitPrice),
+        );
 
     return SupplierOrder(
       id: (json['id'] ?? '').toString(),
-      orderNumber: (json['orderNumber'] ?? '').toString(),
-      buyerName: (json['buyerName'] ?? '').toString(),
-      status: (json['status'] ?? '').toString(),
-      totalAmount: _asDouble(json['totalAmount']) ?? 0.0,
-      currency: (json['currency'] ?? '').toString(),
-      createdAt: _asDateTime(json['createdAt']) ??
+      orderNumber:
+          _asString(json['orderNumber']) ?? _buildOrderNumber(json['id']),
+      buyerName:
+          _asString(json['buyerName']) ??
+          _asString(_asMap(json['directOrder'])?['userId']) ??
+          '',
+      status: _normalizeStatus((json['status'] ?? '').toString()),
+      totalAmount: totalAmount,
+      currency: _asString(json['currency']) ?? 'XAF',
+      createdAt:
+          _asDateTime(json['createdAt']) ??
           DateTime.fromMillisecondsSinceEpoch(0),
       items: items,
-      shippedAt: _asDateTime(json['shippedAt']),
+      shippedAt:
+          _asDateTime(json['shippedAt']) ??
+          _asDateTime(shippedEvent['createdAt']),
     );
   }
 
-  SupplierOrder copyWith({
-    String? status,
-    DateTime? shippedAt,
-  }) {
+  SupplierOrder copyWith({String? status, DateTime? shippedAt}) {
     return SupplierOrder(
       id: id,
       orderNumber: orderNumber,
@@ -78,12 +102,12 @@ class SupplierOrdersPageResponse {
   });
 
   factory SupplierOrdersPageResponse.fromJson(Map<String, dynamic> json) {
-    final rawItems = json['items'];
+    final rawItems = json['items'] ?? json['data'];
     final items = rawItems is List
         ? rawItems
-            .whereType<Map>()
-            .map((e) => SupplierOrder.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map((e) => SupplierOrder.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
         : <SupplierOrder>[];
 
     return SupplierOrdersPageResponse(
@@ -99,7 +123,10 @@ class SupplierOrderShipResult {
   final String status;
   final DateTime? shippedAt;
 
-  const SupplierOrderShipResult({required this.status, required this.shippedAt});
+  const SupplierOrderShipResult({
+    required this.status,
+    required this.shippedAt,
+  });
 
   factory SupplierOrderShipResult.fromJson(Map<String, dynamic> json) {
     return SupplierOrderShipResult(
@@ -130,3 +157,43 @@ DateTime? _asDateTime(Object? value) {
   return null;
 }
 
+Map<String, dynamic>? _asMap(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+List<Object?> _asList(Object? value) {
+  if (value is List) return value;
+  return const <Object?>[];
+}
+
+String? _asString(Object? value) {
+  if (value == null) return null;
+  final v = value.toString().trim();
+  if (v.isEmpty) return null;
+  return v;
+}
+
+String _buildOrderNumber(Object? idValue) {
+  final id = _asString(idValue) ?? '';
+  if (id.isEmpty) return '';
+  final suffix = id.length <= 8 ? id : id.substring(0, 8);
+  return 'PO-$suffix';
+}
+
+String _normalizeStatus(String raw) {
+  final status = raw.trim().toUpperCase();
+  switch (status) {
+    case 'PENDING_SUPPLIER_CONFIRM':
+    case 'CONFIRMED':
+      return 'PENDING';
+    case 'SHIPPED':
+      return 'SHIPPED';
+    case 'DELIVERED':
+      return 'DELIVERED';
+    case 'CANCELED':
+      return 'CANCELED';
+    default:
+      return status.isEmpty ? 'UNKNOWN' : status;
+  }
+}

@@ -1,11 +1,8 @@
 import '../models/product.dart';
-import 'api_client.dart';
+import 'api_service.dart';
 import 'mock_product_service.dart';
 
-enum ProductFallbackBehavior {
-  none,
-  mock,
-}
+enum ProductFallbackBehavior { none, mock }
 
 /// Product service backed by the AfroPool API.
 ///
@@ -17,13 +14,9 @@ enum ProductFallbackBehavior {
 /// - mapping/parsing
 /// - fallback behavior (temporary)
 class ProductService {
-  final ApiClient _api;
   final ProductFallbackBehavior fallbackBehavior;
 
-  ProductService({
-    ApiClient? apiClient,
-    this.fallbackBehavior = ProductFallbackBehavior.mock,
-  }) : _api = apiClient ?? ApiClient();
+  ProductService({this.fallbackBehavior = ProductFallbackBehavior.mock});
 
   Future<List<Product>> listProducts() async {
     try {
@@ -38,32 +31,17 @@ class ProductService {
   // 1) API fetching
   // ----------------------------
   Future<Object?> _fetchCatalogProducts() {
-    return _api.get<Object?>(
-      '/products',
-      timeout: const Duration(seconds: 5),
-    );
+    return ApiService.instance.fetchProducts();
   }
 
   // ----------------------------
   // 2) Mapping / parsing
   // ----------------------------
   List<Product> _parseCatalogProducts(Object? json) {
-    if (json is! List) {
-      throw ApiException(
-        statusCode: 200,
-        reasonPhrase: 'OK',
-        body: json?.toString() ?? 'null',
-        message: 'Expected a JSON array from GET /products',
-      );
+    if (json is! List<Product>) {
+      throw ApiException(message: 'Expected a product list from GET /products');
     }
-
-    final result = <Product>[];
-    for (final item in json) {
-      if (item is! Map) continue;
-      final mapped = Product.fromBackendApi(Map<String, dynamic>.from(item));
-      result.add(mapped);
-    }
-    return result;
+    return json;
   }
 
   // ----------------------------

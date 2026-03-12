@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../api/supplier_api.dart';
 import '../app/app_role.dart';
 import '../widgets/role_mode_banner.dart';
-import '../widgets/role_switch_action.dart';
 import 'catalog_import_page.dart';
 import 'supplier_orders_page.dart';
 import 'supplier_product_create_page.dart';
@@ -37,8 +36,7 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
     super.initState();
     _refreshStats();
 
-    // Keeps "last import" and other timestamps fresh, and makes it easy to
-    // turn these into real-time API-driven stats later.
+    // Keeps "last import" and other timestamps fresh
     _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
       setState(() {});
@@ -93,16 +91,35 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
       appBar: AppBar(
         title: const Text('Supplier'),
         actions: [
+          // Role switch button (same as in HomePage)
+          IconButton(
+            tooltip: 'Switch role',
+            icon: Icon(
+              widget.currentRole == AppRole.supplier
+                  ? Icons.person
+                  : Icons.person_outline,
+            ),
+            onPressed: () {
+              final newRole = widget.currentRole == AppRole.supplier
+                  ? AppRole.customer
+                  : AppRole.supplier;
+              widget.onRoleChanged(newRole);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Switched to ${newRole == AppRole.supplier ? 'Supplier' : 'Customer'} mode',
+                  ),
+                ),
+              );
+            },
+          ),
+          // Logout button
           if (widget.onLogout != null)
             IconButton(
               tooltip: 'Logout',
               onPressed: widget.onLogout,
               icon: const Icon(Icons.logout),
             ),
-          RoleSwitchAction(
-            currentRole: widget.currentRole,
-            onRoleChanged: widget.onRoleChanged,
-          ),
         ],
       ),
       body: RefreshIndicator(

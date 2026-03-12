@@ -1,52 +1,85 @@
-/*
-AFRO-KOREA POOL - DUAL SUPPLY MARKETS
-Buyers in Cameroon pool orders from:
-1. 🇳🇬 Nigerian suppliers (faster, cheaper)
-2. 🇰🇷 Korean suppliers (premium, unique)
-Features:
-- Supplier origin filtering
-- MOQ pooling with progress bars
-- Mobile Money payments (MTN, Orange)
-- Real-time pool tracking
-*/
-
 import 'package:flutter/material.dart';
-import 'pages/home_page.dart';
-import 'pages/supplier_dashboard_page.dart';
+
 import 'app/app_role.dart';
+import 'pages/home_page.dart';
+import 'pages/login_screen.dart';
+import 'pages/register_screen.dart';
+import 'pages/supplier_dashboard_page.dart';
+import 'pages/admin_dashboard_page.dart';
+import 'services/api_service.dart';
 import 'services/user_store.dart';
 
-/// Initialize UserStore: check for saved supplier UUID, or save test UUID if none exists
-Future<void> _initializeUserStore() async {
-  final existingUserId = await UserStore.getUserId();
-  
-  if (existingUserId != null && existingUserId.isNotEmpty) {
-    debugPrint('✅ UserStore: Using existing supplier UUID: $existingUserId');
-    return;
-  }
-  
-  // No user ID found, save test supplier UUID
-  const testSupplierUuid = '550e8400-e29b-41d4-a716-446655440000';
-  await UserStore.saveUserId(testSupplierUuid);
-  debugPrint('✅ UserStore: Initialized with test supplier UUID: $testSupplierUuid');
-  debugPrint('💡 Tip: All API calls to /supplier/* endpoints will now include x-user-id header');
-}
-
-// Main app entry point - initialize UserStore before running app
-void main() async {
-  await _initializeUserStore();
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Afro-Korea Pool App',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const AuthWrapper(),
+    );
+  }
 }
 
-class _MyAppState extends State<MyApp> {
+class AuthWrapper extends StatefulWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  bool _isLoading = true;
+  bool _showRegister = false;
+  bool _isAuthenticated = false;
   AppRole _role = AppRole.customer;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    final token = await UserStore.getToken();
+    final role = await UserStore.getUserRole();
+
+    if (token != null && token.isNotEmpty) {
+      ApiService.instance.setBearerToken(token);
+      _isAuthenticated = true;
+      _role = _parseRole(role);
+    }
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _onAuthenticated() async {
+    final role = await UserStore.getUserRole();
+    if (!mounted) return;
+    setState(() {
+      _isAuthenticated = true;
+      _showRegister = false;
+      _role = _parseRole(role);
+    });
+  }
+
+  Future<void> _logout() async {
+    await UserStore.clearAll();
+    ApiService.instance.clearBearerToken();
+    if (!mounted) return;
+    setState(() {
+      _isAuthenticated = false;
+      _showRegister = false;
+      _role = AppRole.customer;
+    });
+  }
 
   void _setRole(AppRole role) {
     if (role == _role) return;
@@ -55,19 +88,57 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Afro-Korea Pool App',
-      // FIXED: Change theme dynamically based on role (customer: blue, supplier: green)
-      theme: ThemeData(primarySwatch: _role == AppRole.supplier ? Colors.green : Colors.blue),
-      home: _role == AppRole.customer
-          ? HomePage(
-              currentRole: _role,
-              onRoleChanged: _setRole,
-            )
-          : SupplierDashboardPage(
-              currentRole: _role,
-              onRoleChanged: _setRole,
-            ),
-    );
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!_isAuthenticated) {
+      if (_showRegister) {
+        return RegisterScreen(
+          onAuthenticated: _onAuthenticated,
+          onGoToLogin: () => setState(() => _showRegister = false),
+        );
+      }
+
+      return LoginScreen(
+        onAuthenticated: _onAuthenticated,
+        onGoToRegister: () => setState(() => _showRegister = true),
+      );
+    }
+
+    // Role-based routing
+    if (_role == AppRole.admin) {
+      // Admin sees home page with admin button
+      return HomePage(
+        currentRole: AppRole.customer,
+        onRoleChanged: _setRole,
+        onLogout: _logout,
+        isAdmin: true,
+      );
+    } else if (_role == AppRole.supplier) {
+      return SupplierDashboardPage(
+        currentRole: _role,
+        onRoleChanged: _setRole,
+        onLogout: _logout,
+      );
+    } else {
+      return HomePage(
+        currentRole: _role,
+        onRoleChanged: _setRole,
+        onLogout: _logout,
+        isAdmin: false,
+      );
+    }
   }
+}
+
+AppRole _parseRole(String? role) {
+  final upper = (role ?? '').trim().toUpperCase();
+  if (upper == 'SUPPLIER') {
+    return AppRole.supplier;
+  }
+  if (upper == 'ADMIN') {
+    return AppRole.admin;
+  }
+  return AppRole.customer;
 }

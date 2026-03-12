@@ -10,10 +10,22 @@ class SupplierOrderItem {
   });
 
   factory SupplierOrderItem.fromJson(Map<String, dynamic> json) {
+    final variant = _asMap(json['variant']);
+    final variantProduct = variant == null ? null : _asMap(variant['product']);
+
     return SupplierOrderItem(
-      productName: (json['productName'] ?? '').toString(),
-      quantity: _asInt(json['quantity']) ?? 0,
-      unitPrice: _asDouble(json['unitPrice']) ?? 0.0,
+      productName:
+          _asString(json['productName']) ??
+          _asString(json['name']) ??
+          _asString(json['title']) ??
+          _asString(variantProduct?['title']) ??
+          _asString(json['variantId']) ??
+          'Unknown item',
+      quantity: _asInt(json['quantity']) ?? _asInt(json['qty']) ?? 0,
+      unitPrice:
+          _asDouble(json['unitPrice']) ??
+          _asDouble(json['unitPriceXaf']) ??
+          0.0,
     );
   }
 }
@@ -33,3 +45,14 @@ double? _asDouble(Object? value) {
   return null;
 }
 
+String? _asString(Object? value) {
+  if (value == null) return null;
+  final v = value.toString().trim();
+  if (v.isEmpty) return null;
+  return v;
+}
+
+Map<String, dynamic>? _asMap(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}

@@ -22,16 +22,44 @@ class SupplierProduct {
   });
 
   factory SupplierProduct.fromJson(Map<String, dynamic> json) {
+    final variants = _asList(json['variants']);
+    final firstVariant = variants.isNotEmpty ? _asMap(variants.first) : null;
+    final pools = firstVariant == null
+        ? const <Object?>[]
+        : _asList(firstVariant['pools']);
+    final firstPool = pools.isNotEmpty ? _asMap(pools.first) : null;
+
+    final title =
+        _asString(json['name']) ??
+        _asString(json['product_name']) ??
+        _asString(json['title']) ??
+        '';
+    final sku = _asString(json['sku']) ?? _asString(firstVariant?['sku']) ?? '';
+    final poolStatus =
+        _asString(json['poolStatus']) ??
+        _asString(firstPool?['status']) ??
+        'CLOSED';
+    final currency = _asString(json['currency']) ?? 'XAF';
+    final isProductActive = _asBool(json['isActive']) ?? true;
+    final isVariantActive = _asBool(firstVariant?['isActive']) ?? true;
+
     return SupplierProduct(
       id: (json['id'] ?? '').toString(),
-      name: (json['name'] ?? '').toString(),
-      sku: (json['sku'] ?? '').toString(),
-      price: _asDouble(json['price']) ?? 0.0,
-      currency: (json['currency'] ?? '').toString(),
-      stock: _asInt(json['stock']) ?? 0,
-      poolStatus: (json['poolStatus'] ?? '').toString(),
-      isActive: _asBool(json['isActive']) ?? true,
-      createdAt: _asDateTime(json['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      name: title,
+      sku: sku,
+      price:
+          _asDouble(json['price']) ??
+          _asDouble(firstVariant?['unitPriceXaf']) ??
+          0.0,
+      currency: currency,
+      stock:
+          _asInt(json['stock']) ?? _asInt(firstVariant?['thresholdQty']) ?? 0,
+      poolStatus: poolStatus,
+      isActive: isProductActive && isVariantActive,
+      createdAt:
+          _asDateTime(json['createdAt']) ??
+          _asDateTime(firstVariant?['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 }
@@ -50,12 +78,14 @@ class SupplierProductsPageResponse {
   });
 
   factory SupplierProductsPageResponse.fromJson(Map<String, dynamic> json) {
-    final rawItems = json['items'];
+    final rawItems = json['items'] ?? json['data'];
     final items = rawItems is List
         ? rawItems
-            .whereType<Map>()
-            .map((e) => SupplierProduct.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map(
+                (e) => SupplierProduct.fromJson(Map<String, dynamic>.from(e)),
+              )
+              .toList()
         : <SupplierProduct>[];
 
     return SupplierProductsPageResponse(
@@ -82,6 +112,13 @@ double? _asDouble(Object? value) {
   return null;
 }
 
+String? _asString(Object? value) {
+  if (value == null) return null;
+  final v = value.toString().trim();
+  if (v.isEmpty) return null;
+  return v;
+}
+
 bool? _asBool(Object? value) {
   if (value is bool) return value;
   if (value is String) {
@@ -98,3 +135,12 @@ DateTime? _asDateTime(Object? value) {
   return null;
 }
 
+List<Object?> _asList(Object? value) {
+  if (value is List) return value;
+  return const <Object?>[];
+}
+
+Map<String, dynamic>? _asMap(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}

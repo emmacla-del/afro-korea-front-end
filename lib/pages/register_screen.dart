@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../services/api_service.dart';
 import '../services/user_store.dart';
 
@@ -23,7 +22,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
+  // Supplier-specific controllers
+  final _displayNameController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _businessRegController = TextEditingController();
+
   String _role = 'CUSTOMER';
+  String _country = 'Nigeria'; // default
   bool _isSubmitting = false;
 
   @override
@@ -31,6 +36,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _displayNameController.dispose();
+    _cityController.dispose();
+    _businessRegController.dispose();
     super.dispose();
   }
 
@@ -40,26 +48,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isSubmitting = true);
     try {
+      Map<String, dynamic>? supplierData;
+      if (_role == 'SUPPLIER') {
+        supplierData = {
+          'displayName': _displayNameController.text.trim(),
+          'country': _country,
+          if (_cityController.text.trim().isNotEmpty)
+            'city': _cityController.text.trim(),
+          if (_businessRegController.text.trim().isNotEmpty)
+            'businessRegNumber': _businessRegController.text.trim(),
+        };
+      }
+
       final response = await ApiService.instance.register(
         _phoneController.text.trim(),
         _passwordController.text,
         role: _role,
+        supplierData: supplierData,
       );
 
       final token = (response['access_token'] ?? '').toString().trim();
       final user = response['user'];
       if (token.isEmpty || user is! Map) {
-        throw ApiException(
-          message: 'Invalid registration response from server',
-        );
+        throw Exception('Invalid registration response from server');
       }
 
       final userId = (user['id'] ?? '').toString().trim();
       final role = (user['role'] ?? '').toString().trim().toUpperCase();
       if (userId.isEmpty || role.isEmpty) {
-        throw ApiException(
-          message: 'Missing user information in registration response',
-        );
+        throw Exception('Missing user information in registration response');
       }
 
       await UserStore.saveToken(token);
@@ -71,7 +88,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       widget.onAuthenticated();
     } catch (err) {
       if (!mounted) return;
-      final message = err is ApiException ? err.message : 'Registration failed';
+      final message = err is Exception ? err.toString() : 'Registration failed';
       _showError(message);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -128,6 +145,69 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       },
               ),
               const SizedBox(height: 12),
+
+              // Supplier-specific fields
+              if (_role == 'SUPPLIER') ...[
+                TextFormField(
+                  controller: _displayNameController,
+                  enabled: !_isSubmitting,
+                  decoration: const InputDecoration(
+                    labelText: 'Business Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Business name is required';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _country,
+                  decoration: const InputDecoration(
+                    labelText: 'Country',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Nigeria',
+                      child: Text('Nigeria 🇳🇬'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Cameroon',
+                      child: Text('Cameroon 🇨🇲'),
+                    ),
+                  ],
+                  onChanged: _isSubmitting
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setState(() => _country = value);
+                        },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _cityController,
+                  enabled: !_isSubmitting,
+                  decoration: const InputDecoration(
+                    labelText: 'City (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _businessRegController,
+                  enabled: !_isSubmitting,
+                  decoration: const InputDecoration(
+                    labelText: 'Business Registration Number (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // Password fields
               TextFormField(
                 controller: _passwordController,
                 enabled: !_isSubmitting,

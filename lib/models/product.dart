@@ -4,21 +4,15 @@ PRODUCT MODEL FOR DUAL SUPPLY MARKETS - UNIFIED
 FIELDS:
 1. Basic: id, title, description, category, isActive
 2. Pricing: priceXaf (double), currency
-3. Supplier: supplierId, supplierName, supplierOrigin ('nigeria' or 'korea'), supplierCity
+3. Supplier: supplierId, supplierName, supplierOrigin ('nigeria' or 'korea'), supplierCity, supplierCountry, supplierVerificationStatus
 4. Images: List of image URLs
 5. MOQ Pooling: moq (minimum order quantity), currentOrders, poolingDeadline, poolSummary
-6. Shipping: estimatedDays (Nigeria: 3-7, Korea: 14-21), requiresCustoms (Korea only)
+6. Logistics: estimatedDays (Nigeria: 3-7, Korea: 14-21), requiresCustoms (Korea only)
 7. Timestamps: createdAt, updatedAt
 
 FIXED: Issue #1 (merged product.dart + product_model.dart)
 FIXED: Issue #21 (aligned with backend /products endpoint response)
-
-METHODS:
-- toJson(), fromJson()
-- getProgressPercentage() / getProgressColor()
-- getTimeRemaining()
-- getShippingLabel()
-- formattedPrice, formattedDate
+UPDATED: Added supplierCountry and supplierVerificationStatus from backend
 */
 
 import 'package:intl/intl.dart';
@@ -39,8 +33,11 @@ class Product {
   // === Supplier Info ===
   final String supplierId;
   final String supplierName;
-  final String supplierOrigin; // 'nigeria' | 'korea'
+  final String
+  supplierOrigin; // 'nigeria' | 'korea' (derived, kept for backward compatibility)
   final String supplierCity;
+  final String? supplierCountry; // NEW: from backend
+  final String? supplierVerificationStatus; // NEW: from backend
 
   // === MOQ Pooling ===
   final int moq;
@@ -69,6 +66,8 @@ class Product {
     required this.supplierName,
     required this.supplierOrigin,
     required this.supplierCity,
+    this.supplierCountry,
+    this.supplierVerificationStatus,
     required this.moq,
     required this.currentOrders,
     required this.poolingDeadline,
@@ -94,6 +93,9 @@ class Product {
       supplierName: json['supplierName'] ?? 'Unknown',
       supplierOrigin: json['supplierOrigin'] ?? 'unknown',
       supplierCity: json['supplierCity'] ?? '',
+      supplierCountry: json['supplierCountry'], // not present in mock
+      supplierVerificationStatus:
+          json['supplierVerificationStatus'], // not present
       moq: json['moq'] ?? 0,
       currentOrders: json['currentOrders'] ?? 0,
       poolingDeadline: _parseDateTime(json['poolingDeadline']),
@@ -107,7 +109,7 @@ class Product {
   }
 
   /// FIXED: Issue #21 - Deserialize from backend NestJS /products endpoint response
-  /// Backend returns: { id, title, description, category, supplier: {displayName}, variants: [{unitPriceXaf, thresholdQty, leadTimeDays}], createdAt, updatedAt }
+  /// Backend returns: { id, title, description, category, supplier: {displayName, country, verificationStatus, ...}, variants: [{unitPriceXaf, thresholdQty, leadTimeDays}], createdAt, updatedAt }
   factory Product.fromBackendApi(Map<String, dynamic> json) {
     final variants = json['variants'] as List?;
     final firstVariant = variants != null && variants.isNotEmpty
@@ -121,10 +123,26 @@ class Product {
     final unitPriceXaf = _parseDouble(firstVariant['unitPriceXaf']);
     final thresholdQty = _parseInt(firstVariant['thresholdQty']) ?? 0;
     final leadTimeDays = _parseInt(firstVariant['leadTimeDays']) ?? 14;
-    
-    // Determine origin from supplier name
+
+    // Extract supplier fields
     final supplierName = (supplierMap['displayName'] ?? 'Unknown') as String;
-    final supplierOrigin = supplierName.toLowerCase().contains('korea') ? 'korea' : 'nigeria';
+    final supplierCountry = supplierMap['country'] as String?;
+    final supplierVerificationStatus =
+        supplierMap['verificationStatus'] as String?;
+
+    // Determine origin from country or fallback to name detection
+    String supplierOrigin;
+    if (supplierCountry != null) {
+      supplierOrigin = supplierCountry.toLowerCase() == 'nigeria'
+          ? 'nigeria'
+          : supplierCountry.toLowerCase() == 'cameroon'
+          ? 'cameroon'
+          : 'unknown';
+    } else {
+      supplierOrigin = supplierName.toLowerCase().contains('korea')
+          ? 'korea'
+          : 'nigeria';
+    }
 
     return Product(
       id: json['id'] ?? '',
@@ -138,6 +156,8 @@ class Product {
       supplierName: supplierName,
       supplierOrigin: supplierOrigin,
       supplierCity: supplierMap['city'] ?? '',
+      supplierCountry: supplierCountry,
+      supplierVerificationStatus: supplierVerificationStatus,
       moq: thresholdQty,
       currentOrders: 0, // Will be fetched from pool separately
       poolingDeadline: DateTime.now().add(Duration(days: 7)), // Default
@@ -149,7 +169,8 @@ class Product {
       updatedAt: _parseDateTime(json['updatedAt']),
     );
   }
-/// Convert Product to JSON for API requests
+
+  /// Convert Product to JSON for API requests
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -163,6 +184,8 @@ class Product {
       'supplierName': supplierName,
       'supplierOrigin': supplierOrigin,
       'supplierCity': supplierCity,
+      'supplierCountry': supplierCountry,
+      'supplierVerificationStatus': supplierVerificationStatus,
       'moq': moq,
       'currentOrders': currentOrders,
       'poolingDeadline': poolingDeadline.toIso8601String(),
@@ -208,10 +231,12 @@ class Product {
 
   /// Format price with currency
   String get formattedPrice {
-    final formatted = priceXaf.toStringAsFixed(0).replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (m) => '${m[1]},',
-    );
+    final formatted = priceXaf
+        .toStringAsFixed(0)
+        .replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
     return '$formatted $currency';
   }
 
@@ -232,9 +257,7 @@ class Product {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Product &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
+      other is Product && runtimeType == other.runtimeType && id == other.id;
 
   @override
   int get hashCode => id.hashCode;

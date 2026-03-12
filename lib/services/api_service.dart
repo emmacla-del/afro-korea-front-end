@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import '../models/product.dart'; // FIXED: Issue #1 - unified product model
+import 'package:image_picker/image_picker.dart'; // for XFile
+import 'package:mime_type/mime_type.dart' as mime; // ✅ prefixed import
+import '../models/product.dart';
+import 'user_store.dart'; // for UserStore.getUserId()
 
 /// Exception wrapper for API errors with meaningful error messages
 class ApiException implements Exception {
@@ -28,6 +31,7 @@ class ApiException implements Exception {
 /// - Configured for Render-deployed backend
 /// - Built-in logging and error interception
 /// - Bearer token support
+/// - **x-user-id header** automatically added from UserStore
 /// - Proper timeout and retry handling
 /// - Null-safe Dart
 ///
@@ -35,10 +39,10 @@ class ApiException implements Exception {
 /// ```dart
 /// // Get singleton instance
 /// final apiService = ApiService.instance;
-/// 
+///
 /// // Set bearer token for authenticated requests
 /// apiService.setBearerToken('your_token_here');
-/// 
+///
 /// // Fetch products
 /// final products = await apiService.fetchProducts();
 /// ```
@@ -47,7 +51,7 @@ class ApiService {
   static const String _baseUrl = 'https://afro-korea-pool-server.onrender.com';
 
   /// Request timeout duration
-  static const Duration _timeout = Duration(seconds: 15);
+  static const Duration _timeout = Duration(seconds: 30);
 
   /// Singleton instance
   static final ApiService _instance = ApiService._internal();
@@ -70,10 +74,11 @@ class ApiService {
       connectTimeout: _timeout,
       receiveTimeout: _timeout,
       sendTimeout: _timeout,
-      contentType: 'application/json',
+      // ✅ Set Content-Type once with charset
+      contentType: 'application/json; charset=utf-8',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json; charset=utf-8',
+        // ❌ Do NOT add a separate 'Content-Type' header here
       },
       validateStatus: (status) {
         // Allow all status codes to be handled by interceptors
@@ -83,10 +88,11 @@ class ApiService {
 
     _dio = Dio(baseOptions);
 
-    // Add interceptors
+    // Add interceptors (order matters: UserId -> Auth -> Logging -> Error)
     _dio.interceptors.addAll([
-      _LoggingInterceptor(),
+      _UserIdInterceptor(), // adds x-user-id header from UserStore
       _AuthInterceptor(this),
+      _LoggingInterceptor(),
       _ErrorInterceptor(),
     ]);
 
@@ -94,36 +100,101 @@ class ApiService {
   }
 
   /// Set Bearer token for authenticated requests
-  void setBearerToken(String token) {
-    _bearerToken = token;
+  void setBearerToken(String? token) {
+    final normalized = (token ?? '').trim();
+    _bearerToken = normalized.isEmpty ? null : normalized;
+    if (_bearerToken == null) {
+      debugPrint('🔓 Bearer token cleared');
+      return;
+    }
     debugPrint('🔐 Bearer token set for authentication');
   }
 
   /// Clear Bearer token
   void clearBearerToken() {
-    _bearerToken = null;
-    debugPrint('🔓 Bearer token cleared');
+    setBearerToken(null);
   }
 
   /// Get current Bearer token
   String? get bearerToken => _bearerToken;
 
+  // -------------------------------------------------------------------------
+  // Authentication
+  // -------------------------------------------------------------------------
+
+  /// Register a new user. For suppliers, pass `supplierData` containing
+  /// displayName, country, city (optional), businessRegNumber (optional).
+  Future<Map<String, dynamic>> register(
+    String phone,
+    String password, {
+    String role = 'CUSTOMER',
+    Map<String, dynamic>? supplierData,
+  }) async {
+    try {
+      final Map<String, dynamic> requestBody = {
+        'phone': phone.trim(),
+        'password': password,
+        'role': role.trim().toUpperCase(),
+      };
+      if (supplierData != null) {
+        requestBody['supplierData'] = supplierData;
+      }
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/register',
+        data: requestBody,
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return response.data ?? {};
+      }
+
+      throw ApiException(
+        message: _extractResponseError(response.data) ?? 'Registration failed',
+        statusCode: response.statusCode,
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> login(String phone, String password) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/login',
+        data: {'phone': phone.trim(), 'password': password},
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return response.data ?? {};
+      }
+
+      throw ApiException(
+        message: _extractResponseError(response.data) ?? 'Login failed',
+        statusCode: response.statusCode,
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Customer endpoints
+  // -------------------------------------------------------------------------
+
   /// Fetch all products from /products endpoint
-  ///
-  /// FIXED: Issue #21 - Uses Product.fromBackendApi() to deserialize backend response
-  /// Backend returns: { id, title, description, category, supplier: {displayName}, variants: [...], isActive, createdAt, updatedAt }
-  ///
-  /// Throws [ApiException] on errors.
-  /// Returns empty list if no products found.
   Future<List<Product>> fetchProducts() async {
     try {
       debugPrint('📡 Fetching products from /products');
+      final response = await _dio.get<List<dynamic>>('/products');
 
-      final response = await _dio.get<List<dynamic>>(
-        '/products',
-      );
-
-      // Handle 200 success
       if (response.statusCode == 200) {
         final data = response.data ?? [];
         final products = data
@@ -132,7 +203,7 @@ class ApiService {
                 final json = item is Map<String, dynamic>
                     ? item
                     : <String, dynamic>{};
-                return Product.fromBackendApi(json); // FIXED: Issue #21
+                return Product.fromBackendApi(json);
               } catch (e) {
                 debugPrint('⚠️ Error parsing product: $e');
                 return null;
@@ -140,12 +211,10 @@ class ApiService {
             })
             .whereType<Product>()
             .toList();
-
         debugPrint('✅ Fetched ${products.length} products');
         return products;
       }
 
-      // Handle 401 Unauthorized
       if (response.statusCode == 401) {
         throw ApiException(
           message: 'Unauthorized: Please log in to view products',
@@ -153,7 +222,6 @@ class ApiService {
         );
       }
 
-      // Handle 500+ server errors
       if (response.statusCode != null && response.statusCode! >= 500) {
         throw ApiException(
           message: 'Server error: Unable to fetch products',
@@ -161,7 +229,6 @@ class ApiService {
         );
       }
 
-      // Handle other errors
       throw ApiException(
         message: 'Unexpected error: ${response.statusCode}',
         statusCode: response.statusCode,
@@ -190,16 +257,11 @@ class ApiService {
   Future<Map<String, dynamic>> fetchPool(String poolId) async {
     try {
       debugPrint('📡 Fetching pool: $poolId');
-
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/pools/$poolId',
-      );
-
+      final response = await _dio.get<Map<String, dynamic>>('/pools/$poolId');
       if (response.statusCode == 200 && response.data != null) {
         debugPrint('✅ Fetched pool: $poolId');
         return response.data!;
       }
-
       throw ApiException(
         message: 'Failed to fetch pool',
         statusCode: response.statusCode,
@@ -220,17 +282,14 @@ class ApiService {
   }) async {
     try {
       debugPrint('📡 Committing to pool: $poolId');
-
       final response = await _dio.post<Map<String, dynamic>>(
         '/pools/$poolId/commit',
         data: body,
       );
-
       if (response.statusCode == 200 && response.data != null) {
         debugPrint('✅ Successfully committed to pool: $poolId');
         return response.data!;
       }
-
       throw ApiException(
         message: 'Failed to commit to pool',
         statusCode: response.statusCode,
@@ -248,23 +307,17 @@ class ApiService {
   Future<List<Map<String, dynamic>>> fetchMyOrders() async {
     try {
       debugPrint('📡 Fetching my orders from /me/orders');
-
-      final response = await _dio.get<List<dynamic>>(
-        '/me/orders',
-      );
-
+      final response = await _dio.get<List<dynamic>>('/me/orders');
       if (response.statusCode == 200) {
         final data = response.data ?? [];
         return data.map((item) => item as Map<String, dynamic>).toList();
       }
-
       if (response.statusCode == 401) {
         throw ApiException(
           message: 'Unauthorized: Please log in to view orders',
           statusCode: 401,
         );
       }
-
       throw ApiException(
         message: 'Failed to fetch orders',
         statusCode: response.statusCode,
@@ -279,15 +332,9 @@ class ApiService {
   }
 
   /// Create a direct order from cart items
-  /// 
-  /// Requires Bearer token for authentication.
-  /// Sends cart items to /orders/direct endpoint.
-  /// 
-  /// Parameters:
-  /// - [items] - List of JSON-serialized cart items with productId, quantity, unitPrice
-  /// 
-  /// Returns the order response with orderId and status
-  Future<Map<String, dynamic>> createOrder(List<Map<String, dynamic>> items) async {
+  Future<Map<String, dynamic>> createOrder(
+    List<Map<String, dynamic>> items,
+  ) async {
     try {
       debugPrint('📡 Creating order with ${items.length} items');
 
@@ -317,7 +364,9 @@ class ApiService {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (response.data != null) {
-          debugPrint('✅ Order created successfully: ${response.data?['orderId']}');
+          debugPrint(
+            '✅ Order created successfully: ${response.data?['orderId']}',
+          );
           return response.data!;
         }
       }
@@ -360,7 +409,230 @@ class ApiService {
     }
   }
 
-  /// Convert DioException to user-friendly message
+  // -------------------------------------------------------------------------
+  // Supplier endpoints
+  // -------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> getSupplierProductSummary() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/supplier/products/summary',
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> getSupplierPurchaseOrdersSummary() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/supplier/purchase-orders/summary',
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> getLatestCatalogImport() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/supplier/catalog-imports/latest',
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> createSupplierProduct(
+    Map<String, dynamic> productData,
+  ) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/supplier/products',
+        data: productData,
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> createSupplierVariant(
+    Map<String, dynamic> variantData,
+  ) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/supplier/variants',
+        data: variantData,
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  /// Create a supplier product with images (multipart request)
+  Future<Map<String, dynamic>> createSupplierProductWithImages(
+    Map<String, dynamic> fields,
+    List<XFile> images,
+  ) async {
+    try {
+      final formData = FormData.fromMap({
+        ...fields,
+        'images': await Future.wait(
+          images.map((img) async {
+            final bytes = await img.readAsBytes();
+            final mimeType = mime.mime(img.path) ?? 'image/jpeg';
+            return MultipartFile.fromBytes(
+              bytes,
+              filename: img.name,
+              contentType: DioMediaType.parse(mimeType),
+            );
+          }),
+        ),
+      });
+
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/supplier/products',
+        data: formData,
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Health check
+  // -------------------------------------------------------------------------
+  Future<Map<String, dynamic>?> checkHealth() async {
+    try {
+      debugPrint('📡 Checking health at /health');
+      final response = await _dio.get<Map<String, dynamic>>('/health');
+      if (response.statusCode == 200) {
+        return response.data;
+      }
+      return null;
+    } on DioException catch (e) {
+      debugPrint('❌ Health check failed: $e');
+      return null;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Generic methods for services that need flexibility
+  // -------------------------------------------------------------------------
+  Future<Map<String, dynamic>> get(String path) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(path);
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, dynamic>? data,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(path, data: data);
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  // ==================== NEW: PATCH method ====================
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, dynamic>? data,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(path, data: data);
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+  // ===========================================================
+
+  // -------------------------------------------------------------------------
+  // Admin endpoints (NEW)
+  // -------------------------------------------------------------------------
+
+  /// Fetch all suppliers with pending verification
+  Future<List<Map<String, dynamic>>> fetchPendingSuppliers() async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/admin/suppliers/pending',
+      );
+      return (response.data ?? []).cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  /// Verify a supplier (admin only) – send empty JSON body
+  Future<void> verifySupplier(String supplierId) async {
+    try {
+      await _dio.patch('/admin/suppliers/$supplierId/verify', data: {});
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  /// Reject a supplier (admin only) – send empty JSON body
+  Future<void> rejectSupplier(String supplierId) async {
+    try {
+      await _dio.patch('/admin/suppliers/$supplierId/reject', data: {});
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Error helper
+  // -------------------------------------------------------------------------
   static String _getDioErrorMessage(DioException error) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
@@ -382,14 +654,52 @@ class ApiService {
     }
   }
 
-  /// Close Dio instance and clean up resources
+  static String? _extractResponseError(Object? data) {
+    if (data is Map<String, dynamic>) {
+      final message = data['message'];
+      if (message is String && message.trim().isNotEmpty) {
+        return message.trim();
+      }
+      if (message is List && message.isNotEmpty) {
+        return message.map((e) => e.toString()).join(', ');
+      }
+    }
+    return null;
+  }
+
   void close() {
     _dio.close();
     debugPrint('🔌 ApiService closed');
   }
 }
 
-/// Logging interceptor to print all HTTP requests/responses
+// -------------------------------------------------------------------------
+// Interceptors
+// -------------------------------------------------------------------------
+
+/// Adds x-user-id header from UserStore to every request
+class _UserIdInterceptor extends Interceptor {
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    try {
+      final userId = await UserStore.getUserId();
+      if (userId != null && userId.isNotEmpty) {
+        options.headers['x-user-id'] = userId;
+        debugPrint('🔑 x-user-id header added: $userId');
+      } else {
+        debugPrint('⚠️ No user ID found – x-user-id header not added');
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to read user ID: $e');
+    }
+    handler.next(options);
+  }
+}
+
+/// Logs all HTTP requests and responses
 class _LoggingInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
@@ -403,9 +713,14 @@ class _LoggingInterceptor extends Interceptor {
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
+    final responseStr = response.data.toString().replaceAll('\n', ' ');
+    // ✅ Safely truncate without causing RangeError
+    final truncated = responseStr.length > 200
+        ? '${responseStr.substring(0, 200)}...'
+        : responseStr;
     debugPrint(
       '📥 [${response.statusCode}] ${response.requestOptions.uri}\n'
-      'Response: ${response.data.toString().replaceAll('\n', ' ').substring(0, 200)}...',
+      'Response: $truncated',
     );
     super.onResponse(response, handler);
   }
@@ -417,7 +732,7 @@ class _LoggingInterceptor extends Interceptor {
   }
 }
 
-/// Auth interceptor to inject Bearer token into requests
+/// Injects Bearer token when available
 class _AuthInterceptor extends Interceptor {
   final ApiService _apiService;
 
@@ -425,7 +740,6 @@ class _AuthInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    // Inject Bearer token if available
     if (_apiService.bearerToken != null) {
       options.headers['Authorization'] = 'Bearer ${_apiService.bearerToken}';
       debugPrint('🔐 Bearer token injected');
@@ -434,11 +748,10 @@ class _AuthInterceptor extends Interceptor {
   }
 }
 
-/// Error interceptor to handle common error scenarios
+/// Logs common HTTP error codes (does not swallow errors)
 class _ErrorInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    // Log specific error codes
     if (err.response != null) {
       switch (err.response?.statusCode) {
         case 401:
@@ -453,6 +766,7 @@ class _ErrorInterceptor extends Interceptor {
           debugPrint('🔧 Service Unavailable (503): Backend is down');
       }
     }
+    // Always forward the error – do NOT swallow it
     super.onError(err, handler);
   }
 }

@@ -1,12 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'api_client.dart';
+import 'api_service.dart';
 
 /// Service to verify backend API connectivity by testing the /health endpoint.
 class HealthService {
-  final ApiClient apiClient;
-
-  HealthService({ApiClient? apiClient})
-      : apiClient = apiClient ?? ApiClient();
+  static const String _baseUrl = 'https://afro-korea-pool-server.onrender.com';
 
   /// Tests connectivity to the backend by hitting the /health endpoint.
   ///
@@ -14,21 +11,21 @@ class HealthService {
   /// Prints debug info about the connection attempt.
   Future<bool> checkBackendHealth() async {
     try {
-      debugPrint('🏥 Health Check: Testing backend at ${apiClient.baseUri}...');
+      debugPrint('Health Check: Testing backend at $_baseUrl...');
+      final response = await ApiService.instance.checkHealth();
+      final isHealthy = response != null;
 
-      final response = await apiClient.get<Map<String, dynamic>?>(
-        '/health',
-        decode: (json) =>
-            json is Map<String, dynamic> ? json : null,
-      );
-
-      debugPrint('✅ Health Check: Backend is healthy!');
-      debugPrint('   Response: $response');
-      return true;
+      if (isHealthy) {
+        debugPrint('Health Check: Backend is healthy!');
+        debugPrint('   Response: $response');
+      } else {
+        debugPrint('Health Check: Backend returned no health payload');
+      }
+      return isHealthy;
     } catch (e) {
-      debugPrint('❌ Health Check: Failed to connect to backend');
+      debugPrint('Health Check: Failed to connect to backend');
       debugPrint('   Error: $e');
-      debugPrint('   Base URL: ${apiClient.baseUri}');
+      debugPrint('   Base URL: $_baseUrl');
       debugPrint(
         '   Hint: Ensure backend is running and reachable at that address.',
       );
@@ -37,12 +34,12 @@ class HealthService {
   }
 
   /// Convenience getter for the current environment base URL.
-  String get currentBaseUrl => apiClient.baseUri.toString();
+  String get currentBaseUrl => _baseUrl;
 
   /// Prints the configured environment URL based on platform.
   void printEnvironmentInfo() {
-    debugPrint('📡 Environment Configuration:');
-    debugPrint('   Base URL: ${apiClient.baseUri}');
+    debugPrint('Environment Configuration:');
+    debugPrint('   Base URL: $_baseUrl');
     debugPrint('   Platform: ${platformDescription()}');
   }
 
