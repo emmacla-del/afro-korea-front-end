@@ -29,6 +29,12 @@ class _SupplierProductsPageState extends State<SupplierProductsPage> {
     });
     try {
       final products = await ApiService.instance.getSupplierProducts();
+
+      // 🔍 TEMPORARY DEBUG - remove after fixing
+      for (final p in products) {
+        debugPrint('🖼 Product "${p.name}" images: ${p.images}');
+      }
+
       setState(() {
         _products = products;
         _isLoading = false;
@@ -76,7 +82,7 @@ class _SupplierProductsPageState extends State<SupplierProductsPage> {
           child: ListTile(
             leading: product.images?.isNotEmpty == true
                 ? Image.network(
-                    getImageUrl(product.images!.first), // ✅ absolute URL
+                    getImageUrl(product.images!.first),
                     width: 50,
                     height: 50,
                     fit: BoxFit.cover,

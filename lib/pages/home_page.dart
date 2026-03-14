@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../app/app_role.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
-import '../widgets/product_card.dart';
+import 'admin_dashboard_page.dart';
+import 'product_detail_page.dart'; // 👈 import the detail page
 
 class HomePage extends StatefulWidget {
   final AppRole currentRole;
@@ -60,9 +61,6 @@ class _HomePageState extends State<HomePage> {
       onRefresh: _loadProducts,
       child: CustomScrollView(
         slivers: [
-          // Admin button is now in MainScaffold's drawer, not here
-          // Role switch button is now in MainScaffold's app bar
-          // Supplier mode banner
           if (widget.currentRole == AppRole.supplier)
             SliverToBoxAdapter(
               child: Container(
@@ -87,7 +85,6 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-          // Product grid or loading/error
           SliverPadding(
             padding: const EdgeInsets.all(8),
             sliver: _isLoading
@@ -123,23 +120,140 @@ class _HomePageState extends State<HomePage> {
                         ),
                     delegate: SliverChildBuilderDelegate((context, index) {
                       final product = _products[index];
-                      return ProductCard(
-                        product: product,
-                        onTap: () {
-                          // TODO: Navigate to product details
-                        },
-                        onLongPress: () {},
-                        onJoinPool: () {
-                          // TODO: Join pool logic
-                        },
-                        onBuyNow: () {
-                          // TODO: Buy now logic
-                        },
-                      );
+                      return _ProductTile(product: product);
                     }, childCount: _products.length),
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Product tile for the home page with team deal badge and navigation
+class _ProductTile extends StatelessWidget {
+  final Product product;
+
+  const _ProductTile({required this.product});
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = product.images?.isNotEmpty == true
+        ? product.images!.first
+        : null;
+    final regularPrice = product.price ?? 0;
+    final currency = 'XAF';
+    final supplierName = product.supplier?['displayName'] ?? 'Unknown supplier';
+    final hasTeamDeal = product.hasActiveTeamDeal;
+    final teamPrice = product.teamPrice;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ProductDetailPage(productId: product.id),
+            ),
+          );
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Product image with team deal badge
+            Stack(
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: imageUrl == null
+                      ? Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.image),
+                        )
+                      : Image.network(imageUrl, fit: BoxFit.cover),
+                ),
+                if (hasTeamDeal)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'TEAM DEAL',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  // Price row: regular price + team price if available
+                  Row(
+                    children: [
+                      Text(
+                        '$regularPrice $currency',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration:
+                              hasTeamDeal &&
+                                  teamPrice != null &&
+                                  teamPrice < regularPrice
+                              ? TextDecoration.lineThrough
+                              : null,
+                          color:
+                              hasTeamDeal &&
+                                  teamPrice != null &&
+                                  teamPrice < regularPrice
+                              ? Colors.grey
+                              : null,
+                        ),
+                      ),
+                      if (hasTeamDeal &&
+                          teamPrice != null &&
+                          teamPrice < regularPrice) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          '$teamPrice $currency',
+                          style: const TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    supplierName,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

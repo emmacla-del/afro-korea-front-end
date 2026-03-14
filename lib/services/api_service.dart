@@ -27,7 +27,7 @@ class ApiException implements Exception {
 class ApiService {
   static const String _baseUrl = 'https://afro-korea-pool-server.onrender.com';
 
-  // ✅ NEW: public getter so other files can build absolute image URLs
+  // ✅ public getter for base URL
   static String get baseUrl => _baseUrl;
 
   static const Duration _timeout = Duration(seconds: 60);
@@ -312,6 +312,38 @@ class ApiService {
       final response = await _dio.post<Map<String, dynamic>>(
         '/pools/$poolId/join',
       );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Check-in endpoints (NEW)
+  // -------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> checkIn() async {
+    try {
+      debugPrint('📡 Checking in at /checkin');
+      final response = await _dio.post<Map<String, dynamic>>('/checkin');
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> getCheckinStreak() async {
+    try {
+      debugPrint('📡 Fetching check‑in streak from /checkin/streak');
+      final response = await _dio.get<Map<String, dynamic>>('/checkin/streak');
       return response.data ?? {};
     } on DioException catch (e) {
       throw ApiException(
@@ -661,6 +693,20 @@ class ApiService {
       throw ApiException(
         message: _getDioErrorMessage(e),
         statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  // ✅ DELETE METHOD
+  Future<Map<String, dynamic>> delete(String path) async {
+    try {
+      final response = await _dio.delete<Map<String, dynamic>>(path);
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
       );
     }
   }

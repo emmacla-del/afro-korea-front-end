@@ -1,57 +1,104 @@
 import 'package:flutter/foundation.dart';
-import 'product.dart'; // FIXED: Issue #1 - unified product model
+import 'product.dart'; // Needed for the factory method that uses Product
 
-/// CartItem represents a product added to the shopping cart with quantity.
+/// CartItem represents a specific product variant added to the shopping cart.
 ///
-/// This model combines a Product with the quantity selected by the user.
+/// This model stores the exact variant selected, its price at the time of addition,
+/// and the quantity.
 @immutable
 class CartItem {
-  /// The product being added to cart
-  final Product product;
+  /// ID of the product (parent product)
+  final String productId;
 
-  /// Quantity of this product in the cart
+  /// ID of the specific variant
+  final String variantId;
+
+  /// Product title (for display, copied from product at time of addition)
+  final String title;
+
+  /// Price of the variant at the time it was added to the cart
+  final double price;
+
+  /// Currency (e.g., 'XAF')
+  final String currency;
+
+  /// Quantity of this variant in the cart
   final int quantity;
 
-  const CartItem({required this.product, required this.quantity})
-    : assert(quantity > 0, 'Quantity must be greater than 0');
+  const CartItem({
+    required this.productId,
+    required this.variantId,
+    required this.title,
+    required this.price,
+    required this.currency,
+    required this.quantity,
+  }) : assert(quantity > 0, 'Quantity must be greater than 0');
 
-  /// Total price for this cart item (product price × quantity)
-  double get itemTotal => product.price * quantity;
+  /// Factory to create a CartItem from a product, a selected variant, and quantity
+  factory CartItem.fromProductAndVariant(
+    Product product,
+    Map<String, dynamic> variant,
+    int quantity,
+  ) {
+    return CartItem(
+      productId: product.id,
+      variantId: variant['id'] ?? '',
+      title: product.title,
+      price: (variant['unitPriceXaf'] ?? 0).toDouble(),
+      currency: 'XAF',
+      quantity: quantity,
+    );
+  }
+
+  /// Total price for this cart item (price × quantity)
+  double get totalPrice => price * quantity;
 
   /// Create a copy of CartItem with modified fields
-  CartItem copyWith({Product? product, int? quantity}) {
+  CartItem copyWith({
+    String? productId,
+    String? variantId,
+    String? title,
+    double? price,
+    String? currency,
+    int? quantity,
+  }) {
     return CartItem(
-      product: product ?? this.product,
+      productId: productId ?? this.productId,
+      variantId: variantId ?? this.variantId,
+      title: title ?? this.title,
+      price: price ?? this.price,
+      currency: currency ?? this.currency,
       quantity: quantity ?? this.quantity,
     );
   }
 
-  /// Convert CartItem to JSON for API request
+  /// Convert CartItem to JSON for API request (e.g., when creating an order)
   Map<String, dynamic> toJson() {
     return {
-      'productId': product.id,
+      'variantId': variantId,
       'quantity': quantity,
-      'unitPrice': product.price,
+      'unitPrice': price,
+      'currency': currency,
     };
   }
 
   /// Format item total as currency
   String get formattedItemTotal {
-    return '${itemTotal.toStringAsFixed(0)} ${product.currency}';
+    return '${totalPrice.toStringAsFixed(0)} $currency';
   }
 
   @override
   String toString() =>
-      'CartItem(product: ${product.name}, quantity: $quantity, total: $formattedItemTotal)';
+      'CartItem(title: $title, variantId: $variantId, quantity: $quantity, total: $formattedItemTotal)';
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is CartItem &&
           runtimeType == other.runtimeType &&
-          product.id == other.product.id &&
+          variantId == other.variantId &&
           quantity == other.quantity;
 
   @override
-  int get hashCode => product.id.hashCode ^ quantity.hashCode;
+  int get hashCode => variantId.hashCode ^ quantity.hashCode;
 }

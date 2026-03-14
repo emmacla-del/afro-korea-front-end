@@ -1,14 +1,3 @@
-name: afro_korea_pool
-description: "A dual-market e-commerce app connecting Cameroon buyers with Nigerian and Korean suppliers. Features MOQ pooling, real-time tracking, and mobile money payments."
-# The following line prevents the package from being accidentally published to
-# pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
-
-version: 1.0.0+1
-
-environment:
-  sdk: ^3.10.1
-
 dependencies:
   flutter:
     sdk: flutter
@@ -22,18 +11,5 @@ dependencies:
   shared_preferences: ^2.1.1
   flutter_secure_storage: ^9.2.4
   image_picker: ^1.0.4
-  mime_type: ^1.0.0 # optional, for determining file MIME type
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-
-  flutter_lints: ^6.0.0
-  network_image_mock: ^2.1.1
-
-flutter:
-  uses-material-design: true
-  # Add assets section when needed:
-  # assets:
-  #   - images/
-  #   - icons/
+  mime_type: ^1.0.0
+  share_plus: ^10.1.4   # 👈 added

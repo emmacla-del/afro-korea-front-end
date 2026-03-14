@@ -192,6 +192,18 @@ class SupplierApi {
     return SupplierProduct.fromJson(Map<String, dynamic>.from(json));
   }
 
+  // ✅ NEW: Delete a product
+  Future<void> deleteProduct(String id) async {
+    try {
+      await api_service.ApiService.instance.delete('/supplier/products/$id');
+    } on api_service.ApiException catch (err) {
+      throw _mapApiServiceException(err);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal HTTP helpers
+  // -------------------------------------------------------------------------
   Future<Object?> _getJson(
     String path, {
     Map<String, dynamic>? queryParameters,
@@ -262,6 +274,9 @@ class SupplierApi {
   }
 }
 
+// -------------------------------------------------------------------------
+// Custom exception for this API wrapper
+// -------------------------------------------------------------------------
 class ApiException implements Exception {
   final int statusCode;
   final String? reasonPhrase;
@@ -365,6 +380,9 @@ Map<String, String> _stringifyQuery(Map<String, dynamic> queryParameters) {
   return result;
 }
 
+// -------------------------------------------------------------------------
+// Response models (unchanged)
+// -------------------------------------------------------------------------
 class SupplierProductSummary {
   final int total;
   final int openPool;

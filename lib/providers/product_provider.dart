@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../models/product.dart'; // FIXED: Issue #1 - unified product model
+import '../models/product.dart';
 import '../services/api_service.dart';
 
-/// FutureProvider that fetches products from the backend
+/// FutureProvider that fetches products from the backend.
 ///
 /// Usage in widgets:
 /// ```dart
@@ -11,14 +11,14 @@ import '../services/api_service.dart';
 ///
 /// Returns:
 /// - AsyncValue.loading while fetching
-/// - AsyncValue.data with List<Product> on success
+/// - AsyncValue.data with List&lt;Product&gt; on success
 /// - AsyncValue.error on failure
 final productsProvider = FutureProvider<List<Product>>((ref) async {
   final apiService = ApiService.instance;
   return apiService.fetchProducts();
 });
 
-/// Provider for getting a specific product by ID
+/// Provider for getting a specific product by ID.
 ///
 /// Usage:
 /// ```dart
@@ -36,7 +36,7 @@ final productByIdProvider = FutureProvider.family<Product?, String>((
   }
 });
 
-/// Provider for filtered products by category
+/// Provider for filtered products by category.
 ///
 /// Usage:
 /// ```dart
@@ -50,12 +50,13 @@ final productsByCategoryProvider =
         return products;
       }
 
+      final lowerCategory = category.toLowerCase();
       return products
-          .where((p) => p.category.toLowerCase() == category.toLowerCase())
+          .where((p) => p.category?.toLowerCase() == lowerCategory)
           .toList();
     });
 
-/// Provider for searching products by name/description
+/// Provider for searching products by name/description.
 ///
 /// Usage:
 /// ```dart
@@ -75,13 +76,17 @@ final searchProductsProvider = FutureProvider.family<List<Product>, String>((
   return products
       .where(
         (p) =>
-            p.name.toLowerCase().contains(lowerQuery) ||
+            p.title.toLowerCase().contains(
+              lowerQuery,
+            ) || // 👈 use title (non‑nullable)
             (p.description?.toLowerCase().contains(lowerQuery) ?? false),
       )
       .toList();
 });
 
-/// Provider for sorted products by price (ascending)
+/// Provider for sorted products by price (ascending).
+///
+/// Products with no price (null) are placed at the end.
 ///
 /// Usage:
 /// ```dart
@@ -92,11 +97,15 @@ final productsSortedByPriceProvider = FutureProvider<List<Product>>((
 ) async {
   final products = await ref.watch(productsProvider.future);
   final sorted = List<Product>.from(products);
-  sorted.sort((a, b) => a.price.compareTo(b.price));
+  sorted.sort((a, b) {
+    final aPrice = a.price ?? double.infinity;
+    final bPrice = b.price ?? double.infinity;
+    return aPrice.compareTo(bPrice);
+  });
   return sorted;
 });
 
-/// Provider for most recently created products
+/// Provider for most recently created products.
 ///
 /// Usage:
 /// ```dart
@@ -112,7 +121,7 @@ final newestProductsProvider = FutureProvider.family<List<Product>, int>((
   return sorted.take(limit).toList();
 });
 
-/// Provider for product count
+/// Provider for product count.
 ///
 /// Usage:
 /// ```dart
@@ -123,13 +132,12 @@ final productCountProvider = FutureProvider<int>((ref) async {
   return products.length;
 });
 
-/// Error handler for products provider
-/// Provides a default empty list when products fail to load
+/// Error handler for products provider.
+/// Provides a default empty list when products fail to load.
 final productsWithFallbackProvider = FutureProvider<List<Product>>((ref) async {
   try {
     return await ref.watch(productsProvider.future);
   } catch (e) {
-    // Return empty list on error
     return [];
   }
 });

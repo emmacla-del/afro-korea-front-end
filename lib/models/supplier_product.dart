@@ -9,7 +9,7 @@ class SupplierProduct {
   final String poolStatus;
   final bool isActive;
   final DateTime createdAt;
-  final List<String>? images; // 👈 NEW: list of image URLs
+  final List<String>? images; // list of Cloudinary URLs
 
   const SupplierProduct({
     required this.id,
@@ -47,15 +47,10 @@ class SupplierProduct {
     final isProductActive = _asBool(json['isActive']) ?? true;
     final isVariantActive = _asBool(firstVariant?['isActive']) ?? true;
 
-    // 👇 NEW: parse images
+    // ✅ CORRECTED: images is a list of strings (Cloudinary URLs)
     final imagesList = _asList(json['images']);
-    final images = imagesList.isNotEmpty
-        ? imagesList
-              .map((img) => _asMap(img))
-              .whereType<Map<String, dynamic>>()
-              .map((img) => _asString(img['url']) ?? '')
-              .where((url) => url.isNotEmpty)
-              .toList()
+    final List<String>? images = imagesList.isNotEmpty
+        ? imagesList.map((url) => _asString(url)).whereType<String>().toList()
         : null;
 
     return SupplierProduct(
@@ -76,7 +71,7 @@ class SupplierProduct {
           _asDateTime(json['createdAt']) ??
           _asDateTime(firstVariant?['createdAt']) ??
           DateTime.fromMillisecondsSinceEpoch(0),
-      images: images, // 👈 NEW
+      images: images,
     );
   }
 }
@@ -114,6 +109,9 @@ class SupplierProductsPageResponse {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helper functions (unchanged)
+// ---------------------------------------------------------------------------
 int? _asInt(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();

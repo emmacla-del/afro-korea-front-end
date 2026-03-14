@@ -6,9 +6,10 @@ import '../pages/supplier_dashboard_page.dart';
 import '../pages/supplier_products_page.dart';
 import '../pages/supplier_orders_page.dart';
 import '../pages/admin_dashboard_page.dart';
-import '../pages/my_pools_page.dart';
+import '../pages/my_orders_page.dart'; // 👈 import the orders page
 import '../pages/supplier_product_create_page.dart';
-import '../pages/team_deals_page.dart'; // 👈 NEW import
+import '../pages/team_deals_page.dart';
+import '../services/api_service.dart'; // 👈 for check‑in API
 
 class MainScaffold extends StatefulWidget {
   final AppRole role;
@@ -63,16 +64,15 @@ class _MainScaffoldState extends State<MainScaffold> {
               isAdmin: false,
             ),
           ),
-          // 👇 NEW: Team Deals tab
           (
             icon: Icons.groups,
             label: 'Team Deals',
             page: const TeamDealsPage(),
           ),
           (
-            icon: Icons.group,
-            label: 'My Pools',
-            page: const MyPoolsPage(),
+            icon: Icons.shopping_bag, // 👈 better icon for orders
+            label: 'My Orders',
+            page: const MyOrdersPage(), // 👈 use the new orders page
           ),
           (
             icon: Icons.person,
@@ -151,6 +151,26 @@ class _MainScaffoldState extends State<MainScaffold> {
     }
   }
 
+  // 👇 New method to handle check‑in
+  Future<void> _handleCheckIn() async {
+    try {
+      final result = await ApiService.instance.checkIn();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '✅ Check-in successful! Reward: ${result['reward'] ?? 'none'}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -159,6 +179,13 @@ class _MainScaffoldState extends State<MainScaffold> {
       appBar: AppBar(
         title: Text(_getTitleForRole(widget.role)),
         actions: [
+          // 👇 Check‑in button for customers only
+          if (widget.role == AppRole.customer)
+            IconButton(
+              icon: const Icon(Icons.calendar_today),
+              tooltip: 'Daily Check‑in',
+              onPressed: _handleCheckIn,
+            ),
           // Role switch button (visible for all except admin)
           if (widget.role != AppRole.admin)
             IconButton(
@@ -193,8 +220,7 @@ class _MainScaffoldState extends State<MainScaffold> {
         onTap: (index) => setState(() => _selectedIndex = index),
         type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.white,
-        selectedItemColor:
-            theme.primaryColor, // uses your app's primary color (green)
+        selectedItemColor: theme.primaryColor,
         unselectedItemColor: Colors.grey[600],
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
         unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal),
