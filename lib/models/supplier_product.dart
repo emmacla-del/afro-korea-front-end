@@ -1,5 +1,6 @@
 class SupplierProduct {
   final String id;
+  final String? variantId; // ID of the first variant
   final String name;
   final String sku;
   final double price;
@@ -8,9 +9,11 @@ class SupplierProduct {
   final String poolStatus;
   final bool isActive;
   final DateTime createdAt;
+  final List<String>? images; // 👈 NEW: list of image URLs
 
   const SupplierProduct({
     required this.id,
+    this.variantId,
     required this.name,
     required this.sku,
     required this.price,
@@ -19,6 +22,7 @@ class SupplierProduct {
     required this.poolStatus,
     required this.isActive,
     required this.createdAt,
+    this.images,
   });
 
   factory SupplierProduct.fromJson(Map<String, dynamic> json) {
@@ -43,8 +47,20 @@ class SupplierProduct {
     final isProductActive = _asBool(json['isActive']) ?? true;
     final isVariantActive = _asBool(firstVariant?['isActive']) ?? true;
 
+    // 👇 NEW: parse images
+    final imagesList = _asList(json['images']);
+    final images = imagesList.isNotEmpty
+        ? imagesList
+              .map((img) => _asMap(img))
+              .whereType<Map<String, dynamic>>()
+              .map((img) => _asString(img['url']) ?? '')
+              .where((url) => url.isNotEmpty)
+              .toList()
+        : null;
+
     return SupplierProduct(
       id: (json['id'] ?? '').toString(),
+      variantId: firstVariant != null ? _asString(firstVariant['id']) : null,
       name: title,
       sku: sku,
       price:
@@ -60,6 +76,7 @@ class SupplierProduct {
           _asDateTime(json['createdAt']) ??
           _asDateTime(firstVariant?['createdAt']) ??
           DateTime.fromMillisecondsSinceEpoch(0),
+      images: images, // 👈 NEW
     );
   }
 }

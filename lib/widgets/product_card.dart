@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/product.dart';
 
 const _flagNigeria = '\u{1F1F3}\u{1F1EC}';
+const _flagCameroon = '\u{1F1E8}\u{1F1F2}';
 const _flagKorea = '\u{1F1F0}\u{1F1F7}';
 const _truckEmoji = '\u{1F69A}';
 const _planeEmoji = '\u2708\uFE0F';
@@ -35,16 +36,25 @@ class ProductCard extends StatelessWidget {
     return Colors.red;
   }
 
+  String _getFlag() {
+    if (product.supplierCountry?.toLowerCase() == 'nigeria') {
+      return _flagNigeria;
+    } else if (product.supplierCountry?.toLowerCase() == 'cameroon') {
+      return _flagCameroon;
+    } else if (product.supplierOrigin == 'korea') {
+      return _flagKorea;
+    }
+    return _unknownEmoji;
+  }
+
+  bool get _isVerified => product.supplierVerificationStatus == 'VERIFIED';
+
   @override
   Widget build(BuildContext context) {
     final rawProgress = product.moq == 0
         ? 0.0
         : (product.currentOrders / product.moq);
-    final progress = rawProgress < 0
-        ? 0.0
-        : rawProgress > 1
-        ? 1.0
-        : rawProgress;
+    final progress = rawProgress.clamp(0.0, 1.0);
 
     final formattedPrice = product.priceXaf
         .toStringAsFixed(0)
@@ -55,12 +65,7 @@ class ProductCard extends StatelessWidget {
 
     final origin = product.supplierOrigin.toLowerCase();
     final isNigeria = origin == 'nigeria';
-    final isKorea = origin == 'korea';
-    final flag = isNigeria
-        ? _flagNigeria
-        : isKorea
-        ? _flagKorea
-        : _unknownEmoji;
+    // final isKorea = origin == 'korea'; // removed unused variable
 
     final customsSuffix = product.requiresCustoms ? ' + customs' : '';
     final shippingEmoji = product.requiresCustoms || product.estimatedDays >= 10
@@ -74,7 +79,8 @@ class ProductCard extends StatelessWidget {
     final poolStatus = pool?.status.trim().toUpperCase();
     final poolDeadline = pool?.deadlineAt;
     final paymentWindowEndsAt = pool?.paymentWindowEndsAt;
-    final joinEnabled = pool != null &&
+    final joinEnabled =
+        pool != null &&
         poolStatus == 'OPEN' &&
         !(product.moq > 0 && product.currentOrders >= product.moq);
 
@@ -103,7 +109,6 @@ class ProductCard extends StatelessWidget {
                     top: Radius.circular(12.0),
                   ),
                   child: AspectRatio(
-                    // Keep the image shorter to avoid vertical overflows in grid layouts.
                     aspectRatio: 16 / 9,
                     child: imageUrl == null
                         ? Container(
@@ -145,16 +150,38 @@ class ProductCard extends StatelessWidget {
                 Positioned(
                   top: 8,
                   left: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isNigeria ? Colors.green : Colors.red,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(flag, style: const TextStyle(fontSize: 16)),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isNigeria ? Colors.green : Colors.red,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _getFlag(),
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      if (_isVerified) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.check,
+                            color: Colors.white,
+                            size: 12,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -164,14 +191,28 @@ class ProductCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    product.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          product.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      if (_isVerified) ...[
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.verified,
+                          color: Colors.blue,
+                          size: 16,
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -182,17 +223,15 @@ class ProductCard extends StatelessWidget {
                   Text(
                     _buildSupplierLine(
                       supplierCity: product.supplierCity,
-                      isNigeria: isNigeria,
-                      isKorea: isKorea,
+                      supplierCountry: product.supplierCountry,
+                      isVerified: _isVerified,
                     ),
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                   if (poolStatus != null && poolStatus.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
-                      child: _PoolStatusBadge(
-                        status: poolStatus,
-                      ),
+                      child: _PoolStatusBadge(status: poolStatus),
                     ),
                   const SizedBox(height: 6),
                   LinearProgressIndicator(
@@ -214,7 +253,10 @@ class ProductCard extends StatelessWidget {
                           deadlineAt: poolDeadline,
                           paymentWindowEndsAt: paymentWindowEndsAt,
                         ),
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
                       ),
                     ),
                   const SizedBox(height: 6),
@@ -251,9 +293,9 @@ class ProductCard extends StatelessWidget {
                                     : poolStatus != 'OPEN'
                                     ? _joinDisabledLabel(poolStatus ?? '')
                                     : (product.moq > 0 &&
-                                              product.currentOrders >= product.moq)
-                                          ? 'Pool Full'
-                                          : 'Join Pool',
+                                          product.currentOrders >= product.moq)
+                                    ? 'Pool Full'
+                                    : 'Join Pool',
                               ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.blue,
@@ -294,18 +336,21 @@ class ProductCard extends StatelessWidget {
 
 String _buildSupplierLine({
   required String supplierCity,
-  required bool isNigeria,
-  required bool isKorea,
+  required String? supplierCountry,
+  required bool isVerified,
 }) {
-  final originLabel = isNigeria
-      ? 'Nigeria'
-      : isKorea
-      ? 'Korea'
-      : 'Unknown';
-
+  final country = supplierCountry?.trim();
   final city = supplierCity.trim();
-  if (city.isEmpty) return 'From $originLabel';
-  return 'From $city, $originLabel';
+
+  if (city.isNotEmpty && country != null && country.isNotEmpty) {
+    return 'From $city, $country';
+  } else if (city.isNotEmpty) {
+    return 'From $city';
+  } else if (country != null && country.isNotEmpty) {
+    return 'From $country';
+  } else {
+    return 'From Unknown';
+  }
 }
 
 String _buildPoolStatusLine(
@@ -381,11 +426,19 @@ class _PoolStatusBadge extends StatelessWidget {
 
     final (label, bg, fg, icon) = switch (normalized) {
       'OPEN' => ('OPEN', Colors.blue, Colors.white, Icons.lock_open),
-      'PAYMENT_WINDOW' =>
-        ('PAYMENT WINDOW', Colors.deepOrange, Colors.white, Icons.timer),
+      'PAYMENT_WINDOW' => (
+        'PAYMENT WINDOW',
+        Colors.deepOrange,
+        Colors.white,
+        Icons.timer,
+      ),
       'EXPIRED' => ('EXPIRED', Colors.grey, Colors.white, Icons.schedule),
-      'FAILED_PAYMENT' =>
-        ('FAILED PAYMENT', Colors.red, Colors.white, Icons.error_outline),
+      'FAILED_PAYMENT' => (
+        'FAILED PAYMENT',
+        Colors.red,
+        Colors.white,
+        Icons.error_outline,
+      ),
       'PURCHASED' => ('PURCHASED', Colors.green, Colors.white, Icons.check),
       _ => (normalized, Colors.black54, Colors.white, Icons.info_outline),
     };
@@ -415,4 +468,3 @@ class _PoolStatusBadge extends StatelessWidget {
     );
   }
 }
-

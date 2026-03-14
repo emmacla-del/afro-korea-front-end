@@ -21,14 +21,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-
-  // Supplier-specific controllers
   final _displayNameController = TextEditingController();
   final _cityController = TextEditingController();
   final _businessRegController = TextEditingController();
 
   String _role = 'CUSTOMER';
-  String _country = 'Nigeria'; // default
+  String _country = 'Nigeria';
   bool _isSubmitting = false;
 
   @override
@@ -45,7 +43,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     if (_isSubmitting) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
-
     setState(() => _isSubmitting = true);
     try {
       Map<String, dynamic>? supplierData;
@@ -59,47 +56,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
             'businessRegNumber': _businessRegController.text.trim(),
         };
       }
-
       final response = await ApiService.instance.register(
         _phoneController.text.trim(),
         _passwordController.text,
         role: _role,
         supplierData: supplierData,
       );
-
       final token = (response['access_token'] ?? '').toString().trim();
       final user = response['user'];
       if (token.isEmpty || user is! Map) {
         throw Exception('Invalid registration response from server');
       }
-
       final userId = (user['id'] ?? '').toString().trim();
       final role = (user['role'] ?? '').toString().trim().toUpperCase();
       if (userId.isEmpty || role.isEmpty) {
         throw Exception('Missing user information in registration response');
       }
-
       await UserStore.saveToken(token);
       await UserStore.saveUserId(userId);
       await UserStore.saveUserRole(role);
       ApiService.instance.setBearerToken(token);
-
       if (!mounted) return;
       widget.onAuthenticated();
     } catch (err) {
       if (!mounted) return;
-      final message = err is Exception ? err.toString() : 'Registration failed';
-      _showError(message);
+      _showError(err is Exception ? err.toString() : 'Registration failed');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
   void _showError(String message) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -119,12 +109,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   labelText: 'Phone',
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Phone is required';
-                  }
-                  return null;
-                },
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Phone is required'
+                    : null,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -139,14 +126,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
                 onChanged: _isSubmitting
                     ? null
-                    : (value) {
-                        if (value == null) return;
-                        setState(() => _role = value);
+                    : (v) {
+                        if (v != null) setState(() => _role = v);
                       },
               ),
               const SizedBox(height: 12),
-
-              // Supplier-specific fields
               if (_role == 'SUPPLIER') ...[
                 TextFormField(
                   controller: _displayNameController,
@@ -155,12 +139,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     labelText: 'Business Name',
                     border: OutlineInputBorder(),
                   ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Business name is required';
-                    }
-                    return null;
-                  },
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Business name is required'
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -181,9 +162,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ],
                   onChanged: _isSubmitting
                       ? null
-                      : (value) {
-                          if (value == null) return;
-                          setState(() => _country = value);
+                      : (v) {
+                          if (v != null) setState(() => _country = v);
                         },
                 ),
                 const SizedBox(height: 12),
@@ -206,8 +186,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
-
-              // Password fields
               TextFormField(
                 controller: _passwordController,
                 enabled: !_isSubmitting,
@@ -216,10 +194,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   labelText: 'Password',
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) {
-                  final trimmed = (value ?? '').trim();
-                  if (trimmed.isEmpty) return 'Password is required';
-                  if (trimmed.length < 6) return 'Minimum 6 characters';
+                validator: (v) {
+                  final t = (v ?? '').trim();
+                  if (t.isEmpty) return 'Password is required';
+                  if (t.length < 6) return 'Minimum 6 characters';
                   return null;
                 },
               ),
@@ -232,12 +210,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   labelText: 'Confirm password',
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) {
-                  if ((value ?? '') != _passwordController.text) {
-                    return 'Passwords do not match';
-                  }
-                  return null;
-                },
+                validator: (v) => v != _passwordController.text
+                    ? 'Passwords do not match'
+                    : null,
                 onFieldSubmitted: (_) => _submit(),
               ),
               const SizedBox(height: 16),

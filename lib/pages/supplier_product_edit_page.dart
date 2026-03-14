@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../api/supplier_api.dart';
 import '../models/supplier_product.dart';
+import '../services/api_service.dart';
+import '../utils/image_utils.dart'; // ✅ NEW import
 
 class SupplierProductEditPage extends StatefulWidget {
   final SupplierProduct product;
@@ -8,7 +10,8 @@ class SupplierProductEditPage extends StatefulWidget {
   const SupplierProductEditPage({super.key, required this.product});
 
   @override
-  State<SupplierProductEditPage> createState() => _SupplierProductEditPageState();
+  State<SupplierProductEditPage> createState() =>
+      _SupplierProductEditPageState();
 }
 
 class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
@@ -27,8 +30,12 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.product.name);
-    _priceController = TextEditingController(text: _formatPrice(widget.product.price));
-    _stockController = TextEditingController(text: widget.product.stock.toString());
+    _priceController = TextEditingController(
+      text: _formatPrice(widget.product.price),
+    );
+    _stockController = TextEditingController(
+      text: widget.product.stock.toString(),
+    );
     _isActive = widget.product.isActive;
     _poolStatus = widget.product.poolStatus.trim().toUpperCase();
     if (_poolStatus != 'OPEN' && _poolStatus != 'CLOSED') {
@@ -42,6 +49,131 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     _priceController.dispose();
     _stockController.dispose();
     super.dispose();
+  }
+
+  void _showCreateTeamDealDialog() {
+    final teamPriceController = TextEditingController();
+    final minBuyersController = TextEditingController(text: '2');
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create Team Deal'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: teamPriceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Team Price (FCFA)',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a team price';
+                  }
+                  if (int.tryParse(value) == null || int.parse(value) <= 0) {
+                    return 'Enter a valid positive number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: minBuyersController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Minimum Buyers',
+                  border: OutlineInputBorder(),
+                  hintText: '2',
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter minimum buyers';
+                  }
+                  final intValue = int.tryParse(value);
+                  if (intValue == null || intValue < 2) {
+                    return 'Minimum must be at least 2';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+
+              if (widget.product.variantId == null) {
+                Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        '❌ This product has no variant. Cannot create team deal.',
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              Navigator.pop(dialogContext);
+
+              BuildContext? loadingContext;
+              if (mounted) {
+                await showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (ctx) {
+                    loadingContext = ctx;
+                    return const Center(child: CircularProgressIndicator());
+                  },
+                );
+              }
+
+              try {
+                await ApiService.instance.createTeamDeal(
+                  variantId: widget.product.variantId!,
+                  teamPrice: int.parse(teamPriceController.text),
+                  minBuyers: int.parse(minBuyersController.text),
+                );
+
+                if (!mounted) return;
+                if (loadingContext != null &&
+                    Navigator.canPop(loadingContext!)) {
+                  Navigator.pop(loadingContext!);
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('✅ Team deal created!')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                if (loadingContext != null &&
+                    Navigator.canPop(loadingContext!)) {
+                  Navigator.pop(loadingContext!);
+                }
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+              }
+            },
+            child: const Text('Launch Deal'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -67,8 +199,7 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     }
 
     final normalizedPoolStatus = _poolStatus.trim().toUpperCase();
-    final nextPoolStatus =
-        normalizedPoolStatus == 'OPEN' ? 'OPEN' : 'CLOSED';
+    final nextPoolStatus = normalizedPoolStatus == 'OPEN' ? 'OPEN' : 'CLOSED';
 
     final nameChanged = name != original.name;
     final priceChanged = price != original.price;
@@ -131,7 +262,9 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -158,6 +291,25 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ✅ Show product image if available
+          if (product.images?.isNotEmpty == true)
+            Card(
+              elevation: 1,
+              clipBehavior: Clip.antiAlias,
+              child: Image.network(
+                getImageUrl(product.images!.first), // ✅ FIXED: absolute URL
+                height: 200,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 200,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.image_not_supported, size: 48),
+                ),
+              ),
+            ),
+          if (product.images?.isNotEmpty == true) const SizedBox(height: 12),
+
           Card(
             elevation: 1,
             child: Padding(
@@ -234,23 +386,21 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
                   const SizedBox(height: 12),
                   SwitchListTile(
                     value: _isActive,
-                    onChanged: _isSaving ? null : (v) => setState(() => _isActive = v),
+                    onChanged: _isSaving
+                        ? null
+                        : (v) => setState(() => _isActive = v),
                     title: const Text('Active'),
-                    subtitle: Text(_isActive ? 'Visible to customers' : 'Hidden'),
+                    subtitle: Text(
+                      _isActive ? 'Visible to customers' : 'Hidden',
+                    ),
                     contentPadding: EdgeInsets.zero,
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    'Pool status',
-                    style: theme.textTheme.titleSmall,
-                  ),
+                  Text('Pool status', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 8),
                   SegmentedButton<String>(
                     segments: const [
-                      ButtonSegment<String>(
-                        value: 'OPEN',
-                        label: Text('OPEN'),
-                      ),
+                      ButtonSegment<String>(value: 'OPEN', label: Text('OPEN')),
                       ButtonSegment<String>(
                         value: 'CLOSED',
                         label: Text('CLOSED'),
@@ -260,9 +410,39 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
                     onSelectionChanged: _isSaving
                         ? null
                         : (selection) {
-                            final v = selection.isEmpty ? 'CLOSED' : selection.first;
+                            final v = selection.isEmpty
+                                ? 'CLOSED'
+                                : selection.first;
                             setState(() => _poolStatus = v);
                           },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Card(
+            elevation: 1,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Team Deal', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Create a time-limited group deal where customers get a discount when enough people join.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _showCreateTeamDealDialog,
+                    icon: const Icon(Icons.groups),
+                    label: const Text('Create Team Deal'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ],
               ),
@@ -273,6 +453,10 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     );
   }
 }
+
+// -------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------
 
 SupplierProduct _mergeUpdatedProduct({
   required SupplierProduct original,
@@ -289,6 +473,7 @@ SupplierProduct _mergeUpdatedProduct({
 
   return SupplierProduct(
     id: statusBase.id,
+    variantId: statusBase.variantId,
     name: name,
     sku: statusBase.sku,
     price: price,
@@ -297,6 +482,7 @@ SupplierProduct _mergeUpdatedProduct({
     poolStatus: poolStatus,
     isActive: isActive,
     createdAt: statusBase.createdAt,
+    images: original.images, // ✅ preserve images through edits
   );
 }
 
@@ -310,4 +496,3 @@ String _compactError(String message) {
   if (trimmed.length <= 180) return trimmed;
   return '${trimmed.substring(0, 180)}...';
 }
-

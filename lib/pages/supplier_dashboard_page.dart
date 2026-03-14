@@ -35,8 +35,6 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
   void initState() {
     super.initState();
     _refreshStats();
-
-    // Keeps "last import" and other timestamps fresh
     _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
       setState(() {});
@@ -55,7 +53,6 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
 
     try {
       final api = SupplierApi();
-
       final productSummaryFuture = api.getProductSummary();
       final orderSummaryFuture = api.getOrderSummary();
       final latestImportFuture = api.getLastCatalogImport();
@@ -77,9 +74,7 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _stats = _stats;
-      });
+      setState(() => _stats = _stats);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -87,131 +82,95 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Supplier'),
-        actions: [
-          // Role switch button (same as in HomePage)
-          IconButton(
-            tooltip: 'Switch role',
-            icon: Icon(
-              widget.currentRole == AppRole.supplier
-                  ? Icons.person
-                  : Icons.person_outline,
-            ),
+    return RefreshIndicator(
+      onRefresh: _refreshStats,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          RoleModeBanner(
+            currentRole: widget.currentRole,
+            onRoleChanged: widget.onRoleChanged,
+          ),
+          const SizedBox(height: 12),
+          _QuickAddCard(
+            isLoading: _isLoading,
             onPressed: () {
-              final newRole = widget.currentRole == AppRole.supplier
-                  ? AppRole.customer
-                  : AppRole.supplier;
-              widget.onRoleChanged(newRole);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Switched to ${newRole == AppRole.supplier ? 'Supplier' : 'Customer'} mode',
-                  ),
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SupplierProductCreatePage(),
                 ),
               );
             },
           ),
-          // Logout button
-          if (widget.onLogout != null)
-            IconButton(
-              tooltip: 'Logout',
-              onPressed: widget.onLogout,
-              icon: const Icon(Icons.logout),
+          const SizedBox(height: 12),
+          _DashboardStatRow(
+            isLoading: _isLoading,
+            lastRefreshedAt: _lastRefreshedAt,
+            onRefresh: _refreshStats,
+          ),
+          const SizedBox(height: 12),
+          _DashboardNavCard(
+            title: 'Products',
+            subtitle:
+                '${_stats.totalProducts} total | ${_stats.openPoolProducts} with OPEN pools',
+            leadingIcon: Icons.inventory_2,
+            trailing: _CountPills(
+              pills: [
+                _Pill(label: 'Total', value: _stats.totalProducts),
+                _Pill(label: 'Open', value: _stats.openPoolProducts),
+              ],
             ),
+            enabled: !_isLoading,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SupplierProductsPage(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          _DashboardNavCard(
+            title: 'Purchase Orders',
+            subtitle:
+                '${_stats.pendingPurchaseOrders} pending | ${_stats.shippedPurchaseOrders} shipped',
+            leadingIcon: Icons.receipt_long,
+            trailing: _CountPills(
+              pills: [
+                _Pill(label: 'Pending', value: _stats.pendingPurchaseOrders),
+                _Pill(label: 'Shipped', value: _stats.shippedPurchaseOrders),
+              ],
+            ),
+            enabled: !_isLoading,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SupplierOrdersPage(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          _DashboardNavCard(
+            title: 'Catalog Import',
+            subtitle: _stats.lastCatalogImportAt == null
+                ? 'No imports yet'
+                : 'Last import: ${_formatDateTime(_stats.lastCatalogImportAt!)}',
+            leadingIcon: Icons.upload_file,
+            trailing: Icon(
+              Icons.chevron_right,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            enabled: !_isLoading,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CatalogImportPage(),
+                ),
+              );
+            },
+          ),
         ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refreshStats,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            RoleModeBanner(
-              currentRole: widget.currentRole,
-              onRoleChanged: widget.onRoleChanged,
-            ),
-            const SizedBox(height: 12),
-            _QuickAddCard(
-              isLoading: _isLoading,
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SupplierProductCreatePage(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _DashboardStatRow(
-              isLoading: _isLoading,
-              lastRefreshedAt: _lastRefreshedAt,
-              onRefresh: () => _refreshStats(),
-            ),
-            const SizedBox(height: 12),
-            _DashboardNavCard(
-              title: 'Products',
-              subtitle:
-                  '${_stats.totalProducts} total | ${_stats.openPoolProducts} with OPEN pools',
-              leadingIcon: Icons.inventory_2,
-              trailing: _CountPills(
-                pills: [
-                  _Pill(label: 'Total', value: _stats.totalProducts),
-                  _Pill(label: 'Open', value: _stats.openPoolProducts),
-                ],
-              ),
-              enabled: !_isLoading,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SupplierProductsPage(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _DashboardNavCard(
-              title: 'Purchase Orders',
-              subtitle:
-                  '${_stats.pendingPurchaseOrders} pending | ${_stats.shippedPurchaseOrders} shipped',
-              leadingIcon: Icons.receipt_long,
-              trailing: _CountPills(
-                pills: [
-                  _Pill(label: 'Pending', value: _stats.pendingPurchaseOrders),
-                  _Pill(label: 'Shipped', value: _stats.shippedPurchaseOrders),
-                ],
-              ),
-              enabled: !_isLoading,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SupplierOrdersPage(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _DashboardNavCard(
-              title: 'Catalog Import',
-              subtitle: _stats.lastCatalogImportAt == null
-                  ? 'No imports yet'
-                  : 'Last import: ${_formatDateTime(_stats.lastCatalogImportAt!)}',
-              leadingIcon: Icons.upload_file,
-              trailing: Icon(
-                Icons.chevron_right,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-              enabled: !_isLoading,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const CatalogImportPage(),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -233,7 +192,6 @@ class SupplierDashboardStats {
   });
 
   factory SupplierDashboardStats.placeholder() {
-    // TODO(API): Replace with real counts from the backend.
     return SupplierDashboardStats(
       totalProducts: 12,
       openPoolProducts: 3,
