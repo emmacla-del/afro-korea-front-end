@@ -56,7 +56,7 @@ class Product {
     return null;
   }
 
-  Product({
+  const Product({
     required this.id,
     required this.supplierId,
     required this.title,

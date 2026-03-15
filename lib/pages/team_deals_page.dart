@@ -26,7 +26,6 @@ class _TeamDealsPageState extends State<TeamDealsPage> {
     });
     try {
       final deals = await ApiService.instance.getOpenTeamDeals();
-      // Filter out deals with missing variant or product
       final validDeals = deals.where((deal) {
         return deal['variant'] != null &&
             (deal['variant'] as Map).containsKey('product') &&
@@ -51,7 +50,7 @@ class _TeamDealsPageState extends State<TeamDealsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('🎉 Successfully joined the deal!')),
       );
-      _loadDeals(); // refresh list
+      _loadDeals();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -97,37 +96,43 @@ class _TeamDealCard extends StatelessWidget {
 
   const _TeamDealCard({required this.deal, required this.onJoin});
 
+  // ✅ Safely extract image URL from either format:
+  // - plain string:  'https://res.cloudinary.com/...'
+  // - object:        { url: 'https://...', id: '...' }
+  String? _extractImageUrl(dynamic images) {
+    if (images == null) return null;
+    if (images is! List || images.isEmpty) return null;
+    final first = images.first;
+    if (first is String) return first;
+    if (first is Map) return first['url']?.toString();
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Safely extract data with null checks
     final variant = deal['variant'];
-    if (variant == null) return const SizedBox.shrink(); // skip if no variant
+    if (variant == null) return const SizedBox.shrink();
 
     final product = variant['product'];
-    if (product == null) return const SizedBox.shrink(); // skip if no product
+    if (product == null) return const SizedBox.shrink();
 
     final originalPrice = deal['unitPriceXafSnapshot'] ?? 0;
     final teamPrice = deal['teamPrice'] ?? 0;
     final current = deal['currentBuyers'] ?? 0;
     final min = deal['minBuyers'] ?? 2;
-    final progress = current / min;
+    final progress = (min > 0) ? (current / min) : 0.0;
     final deadline = DateTime.tryParse(deal['deadlineAt'] ?? '');
-    if (deadline == null)
-      return const SizedBox.shrink(); // skip if invalid date
+    if (deadline == null) return const SizedBox.shrink();
     final timeLeft = deadline.difference(DateTime.now());
 
-    // Images: might be a list of strings or null
-    final images = product['images'];
-    final imageUrl = (images is List && images.isNotEmpty)
-        ? images.first as String?
-        : null;
+    // ✅ Safe image URL extraction — handles String, Map, or null
+    final imageUrl = _extractImageUrl(product['images']);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Product image
           if (imageUrl != null)
             Image.network(
               imageUrl,
@@ -139,15 +144,22 @@ class _TeamDealCard extends StatelessWidget {
                 color: Colors.grey[300],
                 child: const Icon(Icons.image_not_supported),
               ),
+            )
+          else
+            Container(
+              height: 150,
+              color: Colors.grey[200],
+              child: const Center(
+                child: Icon(Icons.image, size: 48, color: Colors.grey),
+              ),
             ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title and supplier
                 Text(
-                  product['title'] ?? 'Unknown product',
+                  product['title']?.toString() ?? 'Unknown product',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -155,11 +167,10 @@ class _TeamDealCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'by ${product['supplier']?['displayName'] ?? 'Supplier'}',
+                  'by ${product['supplier']?['displayName']?.toString() ?? 'Supplier'}',
                   style: const TextStyle(color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
-                // Prices
                 Row(
                   children: [
                     Text(
@@ -182,14 +193,12 @@ class _TeamDealCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Progress bar
                 LinearProgressIndicator(
                   value: progress.clamp(0.0, 1.0),
                   backgroundColor: Colors.grey[200],
                   color: Colors.green,
                 ),
                 const SizedBox(height: 4),
-                // Participants and timer
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -201,7 +210,6 @@ class _TeamDealCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Join button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(

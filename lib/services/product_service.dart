@@ -1,6 +1,5 @@
 import '../models/product.dart';
 import 'api_service.dart';
-import 'mock_product_service.dart';
 
 enum ProductFallbackBehavior { none, mock }
 

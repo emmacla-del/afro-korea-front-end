@@ -234,7 +234,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       int? minBuyers;
       int? currentBuyers;
       if (hasTeamDeal) {
-        final pool = pools!.first as Map<String, dynamic>?;
+        final pool = pools.first as Map<String, dynamic>?;
         teamPrice = (pool?['teamPrice'] as num?)?.toDouble();
         minBuyers = pool?['minBuyers'] as int?;
         currentBuyers = pool?['currentBuyers'] as int?;

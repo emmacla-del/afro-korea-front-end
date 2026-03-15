@@ -1,3 +1,11 @@
+name: afro_korea_pool
+description: "A dual-market e-commerce app connecting Cameroon buyers with Nigerian and Korean suppliers. Features MOQ pooling, real-time tracking, and mobile money payments."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '^3.10.0'   # 👈 added SDK constraint
+
 dependencies:
   flutter:
     sdk: flutter
@@ -12,4 +20,18 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   image_picker: ^1.0.4
   mime_type: ^1.0.0
-  share_plus: ^10.1.4   # 👈 added
+  share_plus: ^10.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  network_image_mock: ^2.1.1
+
+flutter:
+  uses-material-design: true
+  # Add assets section when needed:
+  # assets:
+  #   - images/
+  #   - icons/
