@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart'; // 👈 added
 import '../services/api_service.dart';
 
 class TeamDealsPage extends StatefulWidget {
@@ -108,6 +109,22 @@ class _TeamDealCard extends StatelessWidget {
     return null;
   }
 
+  // 👇 share deal with referral code – UPDATED with correct Netlify domain
+  void _shareDeal(BuildContext context, String poolId) async {
+    try {
+      final stats = await ApiService.instance.getReferralStats();
+      final code = stats['referralCode'];
+      final url =
+          'https://magnificent-frangipane-261faf.netlify.app/#/team-deals?poolId=$poolId&ref=$code';
+      Share.share('Check out this great team deal! $url', subject: 'Team Deal');
+    } catch (e) {
+      // If stats fail, share without referral
+      final url =
+          'https://magnificent-frangipane-261faf.netlify.app/#/team-deals?poolId=$poolId';
+      Share.share('Check out this great team deal! $url', subject: 'Team Deal');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final variant = deal['variant'];
@@ -125,7 +142,6 @@ class _TeamDealCard extends StatelessWidget {
     if (deadline == null) return const SizedBox.shrink();
     final timeLeft = deadline.difference(DateTime.now());
 
-    // ✅ Safe image URL extraction — handles String, Map, or null
     final imageUrl = _extractImageUrl(product['images']);
 
     return Card(
@@ -133,26 +149,54 @@ class _TeamDealCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (imageUrl != null)
-            Image.network(
-              imageUrl,
-              height: 150,
-              width: double.infinity,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                height: 150,
-                color: Colors.grey[300],
-                child: const Icon(Icons.image_not_supported),
+          // 👇 Image with share button overlay
+          Stack(
+            children: [
+              if (imageUrl != null)
+                Image.network(
+                  imageUrl,
+                  height: 150,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 150,
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.image_not_supported),
+                  ),
+                )
+              else
+                Container(
+                  height: 150,
+                  color: Colors.grey[200],
+                  child: const Center(
+                    child: Icon(Icons.image, size: 48, color: Colors.grey),
+                  ),
+                ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.share, size: 20),
+                    onPressed: () => _shareDeal(context, deal['id']),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                  ),
+                ),
               ),
-            )
-          else
-            Container(
-              height: 150,
-              color: Colors.grey[200],
-              child: const Center(
-                child: Icon(Icons.image, size: 48, color: Colors.grey),
-              ),
-            ),
+            ],
+          ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(

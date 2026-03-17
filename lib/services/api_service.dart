@@ -27,7 +27,6 @@ class ApiException implements Exception {
 class ApiService {
   static const String _baseUrl = 'https://afro-korea-pool-server.onrender.com';
 
-  // ✅ public getter for base URL
   static String get baseUrl => _baseUrl;
 
   static const Duration _timeout = Duration(seconds: 60);
@@ -92,12 +91,17 @@ class ApiService {
     String password, {
     String role = 'CUSTOMER',
     Map<String, dynamic>? supplierData,
+    String? name,
+    String? referralCode,
   }) async {
     try {
       final Map<String, dynamic> requestBody = {
         'phone': phone.trim(),
         'password': password,
         'role': role.trim().toUpperCase(),
+        if (name != null && name.isNotEmpty) 'name': name,
+        if (referralCode != null && referralCode.isNotEmpty)
+          'referralCode': referralCode,
       };
       if (supplierData != null) {
         requestBody['supplierData'] = supplierData;
@@ -323,7 +327,7 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Check-in endpoints (NEW)
+  // Check-in endpoints
   // -------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> checkIn() async {
@@ -344,6 +348,40 @@ class ApiService {
     try {
       debugPrint('📡 Fetching check‑in streak from /checkin/streak');
       final response = await _dio.get<Map<String, dynamic>>('/checkin/streak');
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Referral endpoints (NEW)
+  // -------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> generateReferralCode() async {
+    try {
+      debugPrint('📡 Generating referral code at /referral/generate');
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/referral/generate',
+      );
+      return response.data ?? {};
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> getReferralStats() async {
+    try {
+      debugPrint('📡 Fetching referral stats from /referral/stats');
+      final response = await _dio.get<Map<String, dynamic>>('/referral/stats');
       return response.data ?? {};
     } on DioException catch (e) {
       throw ApiException(
@@ -697,7 +735,6 @@ class ApiService {
     }
   }
 
-  // ✅ DELETE METHOD
   Future<Map<String, dynamic>> delete(String path) async {
     try {
       final response = await _dio.delete<Map<String, dynamic>>(path);
@@ -756,7 +793,7 @@ class ApiService {
 }
 
 // -------------------------------------------------------------------------
-// Interceptors
+// Interceptors (unchanged)
 // -------------------------------------------------------------------------
 
 class _UserIdInterceptor extends Interceptor {

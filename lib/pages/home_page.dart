@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../app/app_role.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
-import 'product_detail_page.dart'; // 👈 import the detail page
+import 'product_detail_page.dart';
 
 class HomePage extends StatefulWidget {
   final AppRole currentRole;
@@ -40,6 +40,17 @@ class _HomePageState extends State<HomePage> {
     });
     try {
       final products = await ApiService.instance.fetchProducts();
+
+      // 🔍 TEMP DEBUG — remove after fixing
+      for (final p in products) {
+        debugPrint('🏊 Product: ${p.title}');
+        debugPrint('   variants count: ${p.variants?.length ?? 0}');
+        for (final v in p.variants ?? []) {
+          final pools = v['pools'] as List?;
+          debugPrint('   variant pools: $pools');
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _products = products;
@@ -64,63 +75,80 @@ class _HomePageState extends State<HomePage> {
             SliverToBoxAdapter(
               child: Container(
                 width: double.infinity,
-                color: Colors.green[50],
+                color: const Color(0xFFE8F5E9),
                 padding: const EdgeInsets.symmetric(
                   vertical: 8,
                   horizontal: 16,
                 ),
-                child: Row(
-                  children: const [
-                    Icon(Icons.store, color: Colors.green),
+                child: const Row(
+                  children: [
+                    Icon(Icons.store, color: Color(0xFF00C471), size: 16),
                     SizedBox(width: 8),
                     Text(
                       'Supplier Mode',
                       style: TextStyle(
-                        color: Colors.green,
+                        color: Color(0xFF00C471),
                         fontWeight: FontWeight.w600,
+                        fontSize: 13,
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+
+          SliverToBoxAdapter(
+            child: Container(height: 1, color: Colors.grey.shade100),
+          ),
+
           SliverPadding(
-            padding: const EdgeInsets.all(8),
+            padding: EdgeInsets.zero,
             sliver: _isLoading
                 ? const SliverToBoxAdapter(
-                    child: Center(child: CircularProgressIndicator()),
+                    child: SizedBox(
+                      height: 300,
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
                   )
                 : _error != null
                 ? SliverToBoxAdapter(
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Text('Error: $_error'),
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: _loadProducts,
-                            child: const Text('Retry'),
-                          ),
-                        ],
+                    child: SizedBox(
+                      height: 300,
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('Error: $_error'),
+                            const SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: _loadProducts,
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   )
                 : _products.isEmpty
                 ? const SliverToBoxAdapter(
-                    child: Center(child: Text('No products available')),
+                    child: SizedBox(
+                      height: 300,
+                      child: Center(child: Text('No products available')),
+                    ),
                   )
                 : SliverGrid(
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
-                          childAspectRatio: 0.75,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
+                          childAspectRatio: 0.58,
+                          crossAxisSpacing: 1, // ✅ hairline gap
+                          mainAxisSpacing: 1, // ✅ hairline gap
                         ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final product = _products[index];
-                      return _ProductTile(product: product);
-                    }, childCount: _products.length),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) =>
+                          _ProductTile(product: _products[index]),
+                      childCount: _products.length,
+                    ),
                   ),
           ),
         ],
@@ -129,7 +157,6 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// Product tile for the home page with team deal badge and navigation
 class _ProductTile extends StatelessWidget {
   final Product product;
 
@@ -140,115 +167,185 @@ class _ProductTile extends StatelessWidget {
     final imageUrl = product.images?.isNotEmpty == true
         ? product.images!.first
         : null;
-    final regularPrice = product.price ?? 0;
-    final currency = 'XAF';
+    final soloPrice = product.price ?? 0;
+    final groupPrice = product.teamPrice;
+    final hasGroup = product.hasActiveTeamDeal;
+    final discount = product.discountPercent;
+    final current = product.currentBuyers ?? 0;
+    final min = product.minBuyers ?? 0;
     final supplierName = product.supplier?['displayName'] ?? 'Unknown supplier';
-    final hasTeamDeal = product.hasActiveTeamDeal;
-    final teamPrice = product.teamPrice;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ProductDetailPage(productId: product.id),
-            ),
-          );
-        },
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProductDetailPage(productId: product.id),
+          ),
+        );
+      },
+      child: Container(
+        color: Colors.white,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Product image with team deal badge
-            Stack(
-              children: [
-                AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: imageUrl == null
-                      ? Container(
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.image),
-                        )
-                      : Image.network(imageUrl, fit: BoxFit.cover),
-                ),
-                if (hasTeamDeal)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'TEAM DEAL',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // ✅ Portrait image — no padding, fills width
+            AspectRatio(
+              aspectRatio: 0.85,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  Text(
-                    product.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  Container(
+                    color: Colors.white,
+                    child: imageUrl == null
+                        ? const Center(
+                            child: Icon(
+                              Icons.image,
+                              size: 48,
+                              color: Colors.grey,
+                            ),
+                          )
+                        : Image.network(
+                            imageUrl,
+                            fit: BoxFit.contain, // ✅ full product visible
+                            errorBuilder: (_, __, ___) => const Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                size: 48,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            loadingBuilder: (_, child, progress) {
+                              if (progress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              );
+                            },
+                          ),
                   ),
-                  const SizedBox(height: 4),
-                  // Price row: regular price + team price if available
-                  Row(
-                    children: [
-                      Text(
-                        '$regularPrice $currency',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          decoration:
-                              hasTeamDeal &&
-                                  teamPrice != null &&
-                                  teamPrice < regularPrice
-                              ? TextDecoration.lineThrough
-                              : null,
-                          color:
-                              hasTeamDeal &&
-                                  teamPrice != null &&
-                                  teamPrice < regularPrice
-                              ? Colors.grey
-                              : null,
+
+                  // Discount badge
+                  if (discount > 0)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
                         ),
-                      ),
-                      if (hasTeamDeal &&
-                          teamPrice != null &&
-                          teamPrice < regularPrice) ...[
-                        const SizedBox(width: 4),
-                        Text(
-                          '$teamPrice $currency',
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE53935),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '$discount% OFF',
                           style: const TextStyle(
-                            color: Colors.green,
+                            color: Colors.white,
+                            fontSize: 9,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    supplierName,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
+                      ),
+                    ),
                 ],
+              ),
+            ),
+
+            // ✅ Info strip — compact like Coupang
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black87,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // ✅ Pinduoduo dual price
+                    if (hasGroup && groupPrice != null) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          const Icon(
+                            Icons.groups,
+                            size: 12,
+                            color: Color(0xFF00C471),
+                          ),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(
+                              '${groupPrice.toStringAsFixed(0)} XAF',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF00C471),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Solo: ${soloPrice.toStringAsFixed(0)} XAF',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 10,
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: min > 0 ? (current / min).clamp(0.0, 1.0) : 0,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: const AlwaysStoppedAnimation(
+                            Color(0xFF00C471),
+                          ),
+                          minHeight: 3,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$current/$min joined',
+                        style: const TextStyle(fontSize: 9, color: Colors.grey),
+                      ),
+                    ] else
+                      Text(
+                        '${soloPrice.toStringAsFixed(0)} XAF',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Colors.black87,
+                        ),
+                      ),
+
+                    const Spacer(),
+
+                    Text(
+                      supplierName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

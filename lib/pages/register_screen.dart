@@ -5,11 +5,13 @@ import '../services/user_store.dart';
 class RegisterScreen extends StatefulWidget {
   final VoidCallback onAuthenticated;
   final VoidCallback onGoToLogin;
+  final String? initialReferralCode; // 👈 NEW
 
   const RegisterScreen({
     super.key,
     required this.onAuthenticated,
     required this.onGoToLogin,
+    this.initialReferralCode,
   });
 
   @override
@@ -21,13 +23,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _displayNameController = TextEditingController();
+  final _displayNameController = TextEditingController(); // for supplier
   final _cityController = TextEditingController();
   final _businessRegController = TextEditingController();
+  // 👇 NEW controllers
+  final _nameController = TextEditingController(); // for all users (optional)
+  final _referralController = TextEditingController();
 
   String _role = 'CUSTOMER';
   String _country = 'Nigeria';
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialReferralCode != null) {
+      _referralController.text = widget.initialReferralCode!;
+    }
+  }
 
   @override
   void dispose() {
@@ -37,6 +50,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _displayNameController.dispose();
     _cityController.dispose();
     _businessRegController.dispose();
+    _nameController.dispose(); // 👈
+    _referralController.dispose(); // 👈
     super.dispose();
   }
 
@@ -61,6 +76,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _passwordController.text,
         role: _role,
         supplierData: supplierData,
+        name: _nameController.text.trim().isNotEmpty
+            ? _nameController.text.trim()
+            : null,
+        referralCode: _referralController.text.trim().isNotEmpty
+            ? _referralController.text.trim()
+            : null,
       );
       final token = (response['access_token'] ?? '').toString().trim();
       final user = response['user'];
@@ -102,6 +123,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // 👇 NEW: Full name (optional)
+              TextFormField(
+                controller: _nameController,
+                enabled: !_isSubmitting,
+                decoration: const InputDecoration(
+                  labelText: 'Full Name (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+
               TextFormField(
                 controller: _phoneController,
                 enabled: !_isSubmitting,
@@ -114,8 +146,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     : null,
               ),
               const SizedBox(height: 12),
+
               DropdownButtonFormField<String>(
-                initialValue: _role,
+                value: _role,
                 decoration: const InputDecoration(
                   labelText: 'Role',
                   border: OutlineInputBorder(),
@@ -131,6 +164,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       },
               ),
               const SizedBox(height: 12),
+
               if (_role == 'SUPPLIER') ...[
                 TextFormField(
                   controller: _displayNameController,
@@ -145,7 +179,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  initialValue: _country,
+                  value: _country,
                   decoration: const InputDecoration(
                     labelText: 'Country',
                     border: OutlineInputBorder(),
@@ -186,6 +220,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
+
+              // 👇 NEW: Referral code (optional)
+              TextFormField(
+                controller: _referralController,
+                enabled: !_isSubmitting,
+                decoration: const InputDecoration(
+                  labelText: 'Referral Code (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+
               TextFormField(
                 controller: _passwordController,
                 enabled: !_isSubmitting,
@@ -202,6 +248,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 },
               ),
               const SizedBox(height: 12),
+
               TextFormField(
                 controller: _confirmPasswordController,
                 enabled: !_isSubmitting,
@@ -216,6 +263,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 onFieldSubmitted: (_) => _submit(),
               ),
               const SizedBox(height: 16),
+
               FilledButton(
                 onPressed: _isSubmitting ? null : _submit,
                 child: _isSubmitting
@@ -227,6 +275,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     : const Text('Register'),
               ),
               const SizedBox(height: 8),
+
               TextButton(
                 onPressed: _isSubmitting ? null : widget.onGoToLogin,
                 child: const Text('Already have an account? Sign in'),

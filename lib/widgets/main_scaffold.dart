@@ -151,7 +151,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     }
   }
 
-  // 👇 New method to handle check‑in
+  // 👇 Method to handle check‑in
   Future<void> _handleCheckIn() async {
     try {
       final result = await ApiService.instance.checkIn();
@@ -215,21 +215,24 @@ class _MainScaffoldState extends State<MainScaffold> {
         index: _selectedIndex,
         children: _pages.map((p) => p.page).toList(),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: theme.primaryColor,
-        unselectedItemColor: Colors.grey[600],
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal),
-        items: _pages
-            .map(
-              (p) =>
-                  BottomNavigationBarItem(icon: Icon(p.icon), label: p.label),
-            )
-            .toList(),
+      // 👇 FIX: Wrap BottomNavigationBar with SafeArea to avoid taskbar overlap
+      bottomNavigationBar: SafeArea(
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (index) => setState(() => _selectedIndex = index),
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: Colors.white,
+          selectedItemColor: theme.primaryColor,
+          unselectedItemColor: Colors.grey[600],
+          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal),
+          items: _pages
+              .map(
+                (p) =>
+                    BottomNavigationBarItem(icon: Icon(p.icon), label: p.label),
+              )
+              .toList(),
+        ),
       ),
       floatingActionButton: _buildFAB(),
       drawer: Drawer(

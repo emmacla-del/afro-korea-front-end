@@ -51,9 +51,6 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     super.dispose();
   }
 
-  // -------------------------------------------------------------------------
-  // Delete product
-  // -------------------------------------------------------------------------
   Future<void> _confirmDelete() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -77,7 +74,6 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     );
 
     if (confirmed != true) return;
-
     setState(() => _isDeleting = true);
 
     try {
@@ -97,14 +93,10 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Save product
-  // -------------------------------------------------------------------------
   Future<void> _save() async {
     if (_isSaving) return;
 
     final original = widget.product;
-
     final name = _nameController.text.trim();
     final price = double.tryParse(_priceController.text.trim());
     final stock = int.tryParse(_stockController.text.trim());
@@ -191,9 +183,6 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // -------------------------------------------------------------------------
-  // Create Team Deal Dialog (unchanged)
-  // -------------------------------------------------------------------------
   void _showCreateTeamDealDialog() {
     final teamPriceController = TextEditingController();
     final minBuyersController = TextEditingController(text: '2');
@@ -273,18 +262,27 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
               }
 
               Navigator.pop(dialogContext);
+              if (!mounted) return;
 
-              BuildContext? loadingContext;
-              if (mounted) {
-                await showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (ctx) {
-                    loadingContext = ctx;
-                    return const Center(child: CircularProgressIndicator());
-                  },
-                );
-              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Row(
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Creating team deal...'),
+                    ],
+                  ),
+                  duration: Duration(seconds: 30),
+                ),
+              );
 
               try {
                 await ApiService.instance.createTeamDeal(
@@ -292,21 +290,14 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
                   teamPrice: int.parse(teamPriceController.text),
                   minBuyers: int.parse(minBuyersController.text),
                 );
-
                 if (!mounted) return;
-                if (loadingContext != null &&
-                    Navigator.canPop(loadingContext!)) {
-                  Navigator.pop(loadingContext!);
-                }
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('✅ Team deal created!')),
                 );
               } catch (e) {
                 if (!mounted) return;
-                if (loadingContext != null &&
-                    Navigator.canPop(loadingContext!)) {
-                  Navigator.pop(loadingContext!);
-                }
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
                 ScaffoldMessenger.of(
                   context,
                 ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
@@ -319,9 +310,67 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Build
-  // -------------------------------------------------------------------------
+  void _openImageViewer(List<String> images, int initialIndex) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _ImageViewerPage(images: images, initialIndex: initialIndex),
+      ),
+    );
+  }
+
+  Widget _buildImageGallery(List<String> images) {
+    return Card(
+      elevation: 1,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              'Product Images (${images.length})',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          SizedBox(
+            height: 160,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: images.length,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              itemBuilder: (ctx, i) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => _openImageViewer(images, i),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: Image.network(
+                          images[i],
+                          width: 160,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 160,
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.broken_image, size: 40),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -331,12 +380,10 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
       appBar: AppBar(
         title: const Text('Edit Product'),
         actions: [
-          // Delete button
           IconButton(
             icon: const Icon(Icons.delete),
             onPressed: _isSaving || _isDeleting ? null : _confirmDelete,
           ),
-          // Save button
           TextButton(
             onPressed: (_isSaving || _isDeleting) ? null : _save,
             child: _isSaving
@@ -354,12 +401,10 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // Image gallery
                 if (product.images?.isNotEmpty == true) ...[
                   _buildImageGallery(product.images!),
                   const SizedBox(height: 12),
                 ],
-                // SKU & currency card
                 Card(
                   elevation: 1,
                   child: Padding(
@@ -385,7 +430,6 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Edit fields card
                 Card(
                   elevation: 1,
                   child: Padding(
@@ -476,7 +520,6 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Team Deal card
                 Card(
                   elevation: 1,
                   child: Padding(
@@ -510,55 +553,108 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
             ),
     );
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Image gallery builder
-  // -------------------------------------------------------------------------
-  Widget _buildImageGallery(List<String> images) {
-    return Card(
-      elevation: 1,
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              'Product Images',
-              style: Theme.of(context).textTheme.titleSmall,
+// -------------------------------------------------------------------------
+// Full screen image viewer
+// -------------------------------------------------------------------------
+class _ImageViewerPage extends StatefulWidget {
+  final List<String> images;
+  final int initialIndex;
+
+  const _ImageViewerPage({required this.images, required this.initialIndex});
+
+  @override
+  State<_ImageViewerPage> createState() => _ImageViewerPageState();
+}
+
+class _ImageViewerPageState extends State<_ImageViewerPage> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          '${_currentIndex + 1} / ${widget.images.length}',
+          style: const TextStyle(color: Colors.white),
+        ),
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.images.length,
+        onPageChanged: (index) => setState(() => _currentIndex = index),
+        itemBuilder: (ctx, i) {
+          return InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.network(
+                widget.images[i],
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Icon(
+                    Icons.broken_image,
+                    color: Colors.white54,
+                    size: 64,
+                  ),
+                ),
+                loadingBuilder: (_, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!
+                          : null,
+                      color: Colors.white,
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-          SizedBox(
-            height: 120,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: images.length,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemBuilder: (ctx, i) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      images[i], // already absolute Cloudinary URL
-                      width: 120,
-                      height: 120,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 120,
-                        height: 120,
-                        color: Colors.grey[300],
-                        child: const Icon(Icons.broken_image),
-                      ),
+          );
+        },
+      ),
+      bottomNavigationBar: widget.images.length > 1
+          ? Container(
+              color: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  widget.images.length,
+                  (i) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: _currentIndex == i ? 16 : 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: _currentIndex == i ? Colors.white : Colors.white38,
+                      borderRadius: BorderRadius.circular(4),
                     ),
                   ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }
@@ -590,7 +686,7 @@ SupplierProduct _mergeUpdatedProduct({
     poolStatus: poolStatus,
     isActive: isActive,
     createdAt: statusBase.createdAt,
-    images: original.images, // preserve images
+    images: original.images,
   );
 }
 

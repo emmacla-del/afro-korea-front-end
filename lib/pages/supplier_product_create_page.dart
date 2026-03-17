@@ -20,7 +20,7 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
   final _stockController = TextEditingController();
   final _currencyController = TextEditingController(text: 'XAF');
 
-  List<XFile> _selectedImages = [];
+  final List<XFile> _selectedImages = [];
   bool _isLoading = false;
 
   final ImagePicker _picker = ImagePicker();
@@ -36,8 +36,8 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
   }
 
   Future<void> _pickImages() async {
-    final List<XFile>? images = await _picker.pickMultiImage();
-    if (images != null && images.isNotEmpty) {
+    final List<XFile> images = await _picker.pickMultiImage();
+    if (images.isNotEmpty) {
       setState(() {
         _selectedImages.addAll(images);
       });
@@ -67,7 +67,7 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
       // ✅ SKU not passed — auto-generated on backend
       await ApiService.instance.createSupplierProductWithImages({
         'product_name': name,
-        if (description != null) 'description': description,
+        'description': ?description,
         'price': price.toString(),
         'stock': stock.toString(),
         'currency': currency,
