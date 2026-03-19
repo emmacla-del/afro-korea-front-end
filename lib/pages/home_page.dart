@@ -8,6 +8,8 @@ import '../models/product.dart';
 import '../services/api_service.dart';
 import 'product_detail_page.dart';
 
+enum ProductFilter { all, nearMe }
+
 class HomePage extends StatefulWidget {
   final AppRole currentRole;
   final ValueChanged<AppRole> onRoleChanged;
@@ -27,10 +29,10 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  ProductFilter _filter = ProductFilter.all;
   List<Product> _products = [];
   bool _isLoading = true;
   String? _error;
-  bool _nearMe = false;
 
   @override
   void initState() {
@@ -44,7 +46,9 @@ class _HomePageState extends State<HomePage> {
       _error = null;
     });
     try {
-      final products = await ApiService.instance.fetchProducts(nearMe: _nearMe);
+      final products = await ApiService.instance.fetchProducts(
+        nearMe: _filter == ProductFilter.nearMe,
+      );
       if (!mounted) return;
       setState(() {
         _products = products;
@@ -57,12 +61,6 @@ class _HomePageState extends State<HomePage> {
         _isLoading = false;
       });
     }
-  }
-
-  void _toggleNearMe(bool? value) {
-    if (value == null) return;
-    setState(() => _nearMe = value);
-    _loadProducts();
   }
 
   @override
@@ -124,10 +122,49 @@ class _HomePageState extends State<HomePage> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const Text('Show deals near me'),
+                  const Text('Filter:', style: TextStyle(fontSize: 13)),
                   const SizedBox(width: 8),
-                  Switch(value: _nearMe, onChanged: _toggleNearMe),
+                  PopupMenuButton<ProductFilter>(
+                    initialValue: _filter,
+                    onSelected: (filter) {
+                      setState(() => _filter = filter);
+                      _loadProducts();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade400),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _filter == ProductFilter.all
+                                ? 'All products'
+                                : 'Near me',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          const Icon(Icons.arrow_drop_down, size: 18),
+                        ],
+                      ),
+                    ),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: ProductFilter.all,
+                        child: Text('All products'),
+                      ),
+                      const PopupMenuItem(
+                        value: ProductFilter.nearMe,
+                        child: Text('Near me'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -152,6 +189,31 @@ class _HomePageState extends State<HomePage> {
       return SliverToBoxAdapter(child: Center(child: Text('Error: $_error')));
     }
     if (_products.isEmpty) {
+      if (_filter == ProductFilter.nearMe) {
+        return SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              children: [
+                const Icon(Icons.location_off, size: 48, color: Colors.grey),
+                const SizedBox(height: 16),
+                const Text(
+                  'No deals in your neighbourhood yet.',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() => _filter = ProductFilter.all);
+                    _loadProducts();
+                  },
+                  child: const Text('Show all products'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       return const SliverToBoxAdapter(
         child: Center(child: Text('No products available')),
       );
@@ -159,9 +221,9 @@ class _HomePageState extends State<HomePage> {
     return SliverGrid(
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.65,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.62, // square image + content below
       ),
       delegate: SliverChildBuilderDelegate(
         (context, index) => _ProductTile(product: _products[index]),
@@ -216,8 +278,6 @@ class _ProductTileState extends State<_ProductTile> {
     return '$h:$m:$s';
   }
 
-  // ── Navigation ──────────────────────────────────────────────────────────────
-
   void _goToDetail() {
     Navigator.push(
       context,
@@ -258,8 +318,6 @@ class _ProductTileState extends State<_ProductTile> {
     );
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final p = widget.product;
@@ -282,51 +340,54 @@ class _ProductTileState extends State<_ProductTile> {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Image
+          // ── Image — fixed height, not AspectRatio ──────────────────────
           _buildImage(imageUrl, hasActive),
 
-          // 2. Info
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title
-                GestureDetector(
-                  onTap: _goToDetail,
-                  child: Text(
-                    p.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blueGrey,
+          // ── Content below image ────────────────────────────────────────
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  GestureDetector(
+                    onTap: _goToDetail,
+                    child: Text(
+                      p.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blueGrey,
+                        height: 1.3,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 6),
 
-                // Dual-action frame
-                _buildDualActionFrame(),
-                const SizedBox(height: 6),
+                  // Dual-action frame
+                  _buildDualActionFrame(),
+                  const SizedBox(height: 4),
 
-                // Supplier + share on the same row
-                Row(
-                  children: [
-                    Expanded(child: _buildSupplierRow(p, supplierName)),
-                    _ShareButton(onPressed: _shareDeal),
-                  ],
-                ),
-              ],
+                  // Supplier + share
+                  Row(
+                    children: [
+                      Expanded(child: _buildSupplierRow(p, supplierName)),
+                      _ShareButton(onPressed: _shareDeal),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -340,28 +401,41 @@ class _ProductTileState extends State<_ProductTile> {
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
         child: AspectRatio(
-          aspectRatio: 1.1,
+          aspectRatio: 1.0, // 👈 1:1 square matches 800×800 Cloudinary output
           child: Stack(
+            fit: StackFit.expand,
             children: [
-              Positioned.fill(
-                child: imageUrl == null
-                    ? Container(
-                        color: Colors.grey.shade50,
-                        child: const Icon(Icons.image, color: Colors.grey),
-                      )
-                    : FadeInImage(
-                        placeholder: MemoryImage(kTransparentImage),
-                        image: NetworkImage(imageUrl),
-                        fit: BoxFit.cover,
+              // White base — matches Cloudinary white padding
+              Container(color: Colors.white),
+              imageUrl == null
+                  ? Container(
+                      color: Colors.grey.shade100,
+                      child: const Icon(
+                        Icons.image,
+                        color: Colors.grey,
+                        size: 40,
                       ),
-              ),
+                    )
+                  : FadeInImage(
+                      placeholder: MemoryImage(kTransparentImage),
+                      image: NetworkImage(imageUrl),
+                      fit: BoxFit.contain, // full image, no cropping
+                      imageErrorBuilder: (_, __, ___) => Container(
+                        color: Colors.grey.shade100,
+                        child: const Icon(
+                          Icons.broken_image,
+                          color: Colors.grey,
+                          size: 40,
+                        ),
+                      ),
+                    ),
               if (hasActive)
                 Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(vertical: 3),
                     color: Colors.orange.withValues(alpha: 0.9),
                     child: Text(
                       'Ends: ${_formatDuration(_timeLeft)}',
@@ -392,11 +466,11 @@ class _ProductTileState extends State<_ProductTile> {
             supplierName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+            style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
           ),
         ),
         if (p.supplier != null) ...[
-          const SizedBox(width: 4),
+          const SizedBox(width: 3),
           if (isVerified) ...[
             Icon(Icons.verified, size: 10, color: Colors.blue.shade600),
             const SizedBox(width: 2),
@@ -425,7 +499,6 @@ class _ProductTileState extends State<_ProductTile> {
     final current = p.currentBuyers ?? 0;
     final min = p.minBuyers ?? 0;
     final savings = (p.price ?? 0) - (p.teamPrice ?? 0);
-    // Guard against divide-by-zero when minBuyers is 0
     final progress = min > 0 ? (current / min).clamp(0.0, 1.0) : 0.0;
 
     return Container(
@@ -444,14 +517,14 @@ class _ProductTileState extends State<_ProductTile> {
                   left: Radius.circular(8),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
                         'SOLO',
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: 8,
                           fontWeight: FontWeight.bold,
                           color: Colors.grey,
                         ),
@@ -459,7 +532,7 @@ class _ProductTileState extends State<_ProductTile> {
                       Text(
                         '${p.price} XAF',
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 10,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -476,8 +549,8 @@ class _ProductTileState extends State<_ProductTile> {
             VerticalDivider(
               width: 1,
               color: Colors.grey.shade200,
-              indent: 5,
-              endIndent: 5,
+              indent: 4,
+              endIndent: 4,
             ),
 
             // RIGHT: Group
@@ -486,7 +559,7 @@ class _ProductTileState extends State<_ProductTile> {
                   ? _PulsingGroupCard(
                       onTap: _joinGroup,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
                         decoration: const BoxDecoration(
                           color: Color(0xFFE8F5E9),
                           borderRadius: BorderRadius.horizontal(
@@ -499,7 +572,7 @@ class _ProductTileState extends State<_ProductTile> {
                             const Text(
                               'GROUP',
                               style: TextStyle(
-                                fontSize: 9,
+                                fontSize: 8,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF00C471),
                               ),
@@ -507,13 +580,13 @@ class _ProductTileState extends State<_ProductTile> {
                             Text(
                               '${p.teamPrice} XAF',
                               style: const TextStyle(
-                                fontSize: 11,
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF00C471),
                               ),
                             ),
                             Text(
-                              '-${p.discountPercent}% OFF · Save ${savings.toStringAsFixed(0)} XAF',
+                              '-${p.discountPercent}% · Save ${savings.toStringAsFixed(0)}',
                               style: const TextStyle(
                                 fontSize: 8,
                                 color: Colors.red,
@@ -522,11 +595,11 @@ class _ProductTileState extends State<_ProductTile> {
                             ),
                             if (p.activePoolNeighbourhoodName != null)
                               Padding(
-                                padding: const EdgeInsets.only(top: 4),
+                                padding: const EdgeInsets.only(top: 3),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 4,
-                                    vertical: 2,
+                                    vertical: 1,
                                   ),
                                   decoration: BoxDecoration(
                                     color: Colors.blue.shade100,
@@ -537,22 +610,25 @@ class _ProductTileState extends State<_ProductTile> {
                                     children: [
                                       Icon(
                                         Icons.location_on,
-                                        size: 10,
+                                        size: 8,
                                         color: Colors.blue.shade700,
                                       ),
                                       const SizedBox(width: 2),
-                                      Text(
-                                        p.activePoolNeighbourhoodName!,
-                                        style: TextStyle(
-                                          fontSize: 8,
-                                          color: Colors.blue.shade700,
+                                      Flexible(
+                                        child: Text(
+                                          p.activePoolNeighbourhoodName!,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 7,
+                                            color: Colors.blue.shade700,
+                                          ),
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 3),
                             Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 6,
@@ -569,7 +645,7 @@ class _ProductTileState extends State<_ProductTile> {
                             const SizedBox(height: 2),
                             Text(
                               '$current/$min joined',
-                              style: const TextStyle(fontSize: 8),
+                              style: const TextStyle(fontSize: 7),
                             ),
                           ],
                         ),
@@ -581,7 +657,7 @@ class _ProductTileState extends State<_ProductTile> {
                         right: Radius.circular(8),
                       ),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
                         decoration: BoxDecoration(
                           color: Colors.blue.shade50,
                           borderRadius: const BorderRadius.horizontal(
@@ -591,11 +667,11 @@ class _ProductTileState extends State<_ProductTile> {
                         child: const Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.group_add, size: 16, color: Colors.blue),
+                            Icon(Icons.group_add, size: 14, color: Colors.blue),
                             Text(
                               'START GROUP',
                               style: TextStyle(
-                                fontSize: 8,
+                                fontSize: 7,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.blue,
                               ),
@@ -679,9 +755,9 @@ class _ShareButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: IconButton(
-        icon: const Icon(Icons.share, size: 16),
+        icon: const Icon(Icons.share, size: 14),
         onPressed: onPressed,
-        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
         padding: EdgeInsets.zero,
       ),
     );
