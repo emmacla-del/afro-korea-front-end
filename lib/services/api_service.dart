@@ -744,6 +744,46 @@ class ApiService {
     }
   }
 
+  /// Fetch all users for admin user management.
+  Future<List<Map<String, dynamic>>> fetchAllUsers() async {
+    try {
+      debugPrint('📡 Fetching all users from /admin/users');
+      final response = await _dio.get<List<dynamic>>('/admin/users');
+      return (response.data ?? []).cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  /// Block a user by ID. Admin only.
+  Future<void> blockUser(String userId) async {
+    try {
+      debugPrint('📡 Blocking user: $userId');
+      await _dio.patch('/admin/users/$userId/block', data: {});
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
+  /// Unblock a user by ID. Admin only.
+  Future<void> unblockUser(String userId) async {
+    try {
+      debugPrint('📡 Unblocking user: $userId');
+      await _dio.patch('/admin/users/$userId/unblock', data: {});
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Health check
   // -------------------------------------------------------------------------
