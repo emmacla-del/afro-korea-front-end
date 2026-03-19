@@ -30,7 +30,7 @@ class _HomePageState extends State<HomePage> {
   List<Product> _products = [];
   bool _isLoading = true;
   String? _error;
-  bool _nearMe = false; // 👈 NEW
+  bool _nearMe = false;
 
   @override
   void initState() {
@@ -44,15 +44,14 @@ class _HomePageState extends State<HomePage> {
       _error = null;
     });
     try {
-      final products = await ApiService.instance.fetchProducts(
-        nearMe: _nearMe,
-      ); // 👈 pass filter
+      final products = await ApiService.instance.fetchProducts(nearMe: _nearMe);
       if (!mounted) return;
       setState(() {
         _products = products;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -61,10 +60,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _toggleNearMe(bool? value) {
-    if (value != null) {
-      setState(() => _nearMe = value);
-      _loadProducts(); // re‑fetch with new filter
-    }
+    if (value == null) return;
+    setState(() => _nearMe = value);
+    _loadProducts();
   }
 
   @override
@@ -122,10 +120,9 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 👇 NEW: "Near Me" toggle
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Row(
                 children: [
                   const Text('Show deals near me'),
@@ -138,41 +135,44 @@ class _HomePageState extends State<HomePage> {
 
           SliverPadding(
             padding: const EdgeInsets.all(12),
-            sliver: _isLoading
-                ? const SliverToBoxAdapter(
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : _error != null
-                ? SliverToBoxAdapter(
-                    child: Center(child: Text("Error: $_error")),
-                  )
-                : _products.isEmpty
-                ? const SliverToBoxAdapter(
-                    child: Center(child: Text("No products available")),
-                  )
-                : SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                          childAspectRatio:
-                              0.65, // Calibrated for dual-action frame
-                        ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) =>
-                          _ProductTile(product: _products[index]),
-                      childCount: _products.length,
-                    ),
-                  ),
+            sliver: _buildGridSliver(),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildGridSliver() {
+    if (_isLoading) {
+      return const SliverToBoxAdapter(
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return SliverToBoxAdapter(child: Center(child: Text('Error: $_error')));
+    }
+    if (_products.isEmpty) {
+      return const SliverToBoxAdapter(
+        child: Center(child: Text('No products available')),
+      );
+    }
+    return SliverGrid(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.65,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (context, index) => _ProductTile(product: _products[index]),
+        childCount: _products.length,
+      ),
+    );
+  }
 }
 
-// ==================== Product Tile with Dual-Action Frame ====================
+// ==================== Product Tile ====================
+
 class _ProductTile extends StatefulWidget {
   final Product product;
   const _ProductTile({required this.product});
@@ -193,7 +193,7 @@ class _ProductTileState extends State<_ProductTile> {
   }
 
   void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
         _timeLeft = widget.product.timeLeft;
@@ -209,14 +209,15 @@ class _ProductTileState extends State<_ProductTile> {
   }
 
   String _formatDuration(Duration d) {
-    if (d.inSeconds <= 0) return "00:00:00";
-    final hours = d.inHours.toString().padLeft(2, '0');
-    final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return "$hours:$minutes:$seconds";
+    if (d.inSeconds <= 0) return '00:00:00';
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 
-  // Navigation / action methods – all parameterless
+  // ── Navigation ──────────────────────────────────────────────────────────────
+
   void _goToDetail() {
     Navigator.push(
       context,
@@ -227,20 +228,20 @@ class _ProductTileState extends State<_ProductTile> {
   }
 
   void _buyAlone() {
-    // TODO: Implement solo purchase flow
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Buy Alone - not implemented yet')),
+      const SnackBar(content: Text('Buy Alone — not implemented yet')),
     );
   }
 
   void _joinGroup() {
-    if (widget.product.activeTeamDealPoolId != null) {
+    final poolId = widget.product.activeTeamDealPoolId;
+    if (poolId != null) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ProductDetailPage(
             productId: widget.product.id,
-            initialPoolId: widget.product.activeTeamDealPoolId,
+            initialPoolId: poolId,
           ),
         ),
       );
@@ -249,18 +250,15 @@ class _ProductTileState extends State<_ProductTile> {
     }
   }
 
-  void _startGroup() {
-    // Navigate to detail page; it will handle starting a new deal
-    _goToDetail();
-  }
-
   void _shareDeal() {
     Share.share(
-      "🔥 Check out this deal on ${widget.product.title}!\n"
-      "Price: ${widget.product.price} XAF\n"
-      "https://yourapp.com/product/${widget.product.id}",
+      '🔥 Check out this deal on ${widget.product.title}!\n'
+      'Price: ${widget.product.price} XAF\n'
+      'https://yourapp.com/product/${widget.product.id}',
     );
   }
+
+  // ── Build ────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -268,6 +266,13 @@ class _ProductTileState extends State<_ProductTile> {
     final isExpired = _timeLeft.inSeconds <= 0;
     final hasActive = p.hasActiveTeamDeal && !isExpired;
     final imageUrl = p.images?.isNotEmpty == true ? p.images!.first : null;
+
+    final supplierName = () {
+      final name = p.supplier?['displayName'] as String?;
+      return (name != null && name.trim().isNotEmpty)
+          ? name.trim()
+          : 'Unknown supplier';
+    }();
 
     return Container(
       decoration: BoxDecoration(
@@ -285,64 +290,16 @@ class _ProductTileState extends State<_ProductTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Image Section (Clickable to Details)
-          GestureDetector(
-            onTap: _goToDetail,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(12),
-              ),
-              child: AspectRatio(
-                aspectRatio: 1.1,
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: imageUrl == null
-                          ? Container(
-                              color: Colors.grey.shade50,
-                              child: const Icon(
-                                Icons.image,
-                                color: Colors.grey,
-                              ),
-                            )
-                          : FadeInImage(
-                              placeholder: MemoryImage(kTransparentImage),
-                              image: NetworkImage(imageUrl),
-                              fit: BoxFit.cover,
-                            ),
-                    ),
-                    if (hasActive)
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          color: Colors.orange.withValues(alpha: 0.9),
-                          child: Text(
-                            "Ends: ${_formatDuration(_timeLeft)}",
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          // 1. Image
+          _buildImage(imageUrl, hasActive),
 
-          // 2. Info Section
+          // 2. Info
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Clickable Title
+                // Title
                 GestureDetector(
                   onTap: _goToDetail,
                   child: Text(
@@ -358,20 +315,106 @@ class _ProductTileState extends State<_ProductTile> {
                 ),
                 const SizedBox(height: 8),
 
-                // 3. THE DUAL-ACTION FRAME
+                // Dual-action frame
                 _buildDualActionFrame(),
-
-                // 4. Share Button
                 const SizedBox(height: 6),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _ShareButton(onPressed: _shareDeal),
+
+                // Supplier + share on the same row
+                Row(
+                  children: [
+                    Expanded(child: _buildSupplierRow(p, supplierName)),
+                    _ShareButton(onPressed: _shareDeal),
+                  ],
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildImage(String? imageUrl, bool hasActive) {
+    return GestureDetector(
+      onTap: _goToDetail,
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        child: AspectRatio(
+          aspectRatio: 1.1,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: imageUrl == null
+                    ? Container(
+                        color: Colors.grey.shade50,
+                        child: const Icon(Icons.image, color: Colors.grey),
+                      )
+                    : FadeInImage(
+                        placeholder: MemoryImage(kTransparentImage),
+                        image: NetworkImage(imageUrl),
+                        fit: BoxFit.cover,
+                      ),
+              ),
+              if (hasActive)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    color: Colors.orange.withValues(alpha: 0.9),
+                    child: Text(
+                      'Ends: ${_formatDuration(_timeLeft)}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSupplierRow(Product p, String supplierName) {
+    final isVerified = p.supplier?['verificationStatus'] == 'VERIFIED';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            supplierName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+          ),
+        ),
+        if (p.supplier != null) ...[
+          const SizedBox(width: 4),
+          if (isVerified) ...[
+            Icon(Icons.verified, size: 10, color: Colors.blue.shade600),
+            const SizedBox(width: 2),
+            Text(
+              'Verified',
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.blue.shade600,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ] else
+            Text(
+              'Unverified',
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade400),
+            ),
+        ],
+      ],
     );
   }
 
@@ -382,6 +425,8 @@ class _ProductTileState extends State<_ProductTile> {
     final current = p.currentBuyers ?? 0;
     final min = p.minBuyers ?? 0;
     final savings = (p.price ?? 0) - (p.teamPrice ?? 0);
+    // Guard against divide-by-zero when minBuyers is 0
+    final progress = min > 0 ? (current / min).clamp(0.0, 1.0) : 0.0;
 
     return Container(
       decoration: BoxDecoration(
@@ -391,16 +436,20 @@ class _ProductTileState extends State<_ProductTile> {
       child: IntrinsicHeight(
         child: Row(
           children: [
-            // LEFT SIDE: BUY ALONE
+            // LEFT: Solo
             Expanded(
               child: InkWell(
                 onTap: _buyAlone,
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(8),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        "SOLO",
+                        'SOLO',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
@@ -408,14 +457,14 @@ class _ProductTileState extends State<_ProductTile> {
                         ),
                       ),
                       Text(
-                        "${p.price} XAF",
+                        '${p.price} XAF',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       const Text(
-                        "Standard",
+                        'Standard',
                         style: TextStyle(fontSize: 8, color: Colors.grey),
                       ),
                     ],
@@ -424,7 +473,6 @@ class _ProductTileState extends State<_ProductTile> {
               ),
             ),
 
-            // Divider
             VerticalDivider(
               width: 1,
               color: Colors.grey.shade200,
@@ -432,18 +480,24 @@ class _ProductTileState extends State<_ProductTile> {
               endIndent: 5,
             ),
 
-            // RIGHT SIDE: GROUP (with states)
+            // RIGHT: Group
             Expanded(
               child: hasActive
                   ? _PulsingGroupCard(
                       onTap: _joinGroup,
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        color: const Color(0xFFE8F5E9),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.horizontal(
+                            right: Radius.circular(8),
+                          ),
+                        ),
                         child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             const Text(
-                              "GROUP",
+                              'GROUP',
                               style: TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.bold,
@@ -451,7 +505,7 @@ class _ProductTileState extends State<_ProductTile> {
                               ),
                             ),
                             Text(
-                              "${p.teamPrice} XAF",
+                              '${p.teamPrice} XAF',
                               style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
@@ -459,14 +513,13 @@ class _ProductTileState extends State<_ProductTile> {
                               ),
                             ),
                             Text(
-                              "-${p.discountPercent}% OFF • Save ${savings.toStringAsFixed(0)} XAF",
+                              '-${p.discountPercent}% OFF · Save ${savings.toStringAsFixed(0)} XAF',
                               style: const TextStyle(
                                 fontSize: 8,
                                 color: Colors.red,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            // 👇 NEW: Neighbourhood badge (if present)
                             if (p.activePoolNeighbourhoodName != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
@@ -500,16 +553,22 @@ class _ProductTileState extends State<_ProductTile> {
                                 ),
                               ),
                             const SizedBox(height: 4),
-                            LinearProgressIndicator(
-                              value: (current / min).clamp(0.0, 1.0),
-                              minHeight: 3,
-                              backgroundColor: Colors.grey.shade300,
-                              valueColor: const AlwaysStoppedAnimation(
-                                Color(0xFF00C471),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 3,
+                                backgroundColor: Colors.grey.shade300,
+                                valueColor: const AlwaysStoppedAnimation(
+                                  Color(0xFF00C471),
+                                ),
                               ),
                             ),
+                            const SizedBox(height: 2),
                             Text(
-                              "$current/$min joined",
+                              '$current/$min joined',
                               style: const TextStyle(fontSize: 8),
                             ),
                           ],
@@ -517,15 +576,24 @@ class _ProductTileState extends State<_ProductTile> {
                       ),
                     )
                   : InkWell(
-                      onTap: _startGroup,
+                      onTap: _goToDetail,
+                      borderRadius: const BorderRadius.horizontal(
+                        right: Radius.circular(8),
+                      ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        color: Colors.blue.shade50,
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: const BorderRadius.horizontal(
+                            right: Radius.circular(8),
+                          ),
+                        ),
                         child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(Icons.group_add, size: 16, color: Colors.blue),
                             Text(
-                              "START GROUP",
+                              'START GROUP',
                               style: TextStyle(
                                 fontSize: 8,
                                 fontWeight: FontWeight.bold,
@@ -533,7 +601,7 @@ class _ProductTileState extends State<_ProductTile> {
                               ),
                             ),
                             Text(
-                              "Be the first",
+                              'Be the first',
                               style: TextStyle(fontSize: 7, color: Colors.grey),
                             ),
                           ],
@@ -549,6 +617,7 @@ class _ProductTileState extends State<_ProductTile> {
 }
 
 // ==================== Pulsing Animation Wrapper ====================
+
 class _PulsingGroupCard extends StatefulWidget {
   final VoidCallback onTap;
   final Widget child;
@@ -560,8 +629,8 @@ class _PulsingGroupCard extends StatefulWidget {
 
 class _PulsingGroupCardState extends State<_PulsingGroupCard>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
 
   @override
   void initState() {
@@ -588,9 +657,8 @@ class _PulsingGroupCardState extends State<_PulsingGroupCard>
       onTap: widget.onTap,
       child: AnimatedBuilder(
         animation: _animation,
-        builder: (context, child) {
-          return Transform.scale(scale: _animation.value, child: child);
-        },
+        builder: (_, child) =>
+            Transform.scale(scale: _animation.value, child: child),
         child: widget.child,
       ),
     );
@@ -598,6 +666,7 @@ class _PulsingGroupCardState extends State<_PulsingGroupCard>
 }
 
 // ==================== Reusable Share Button ====================
+
 class _ShareButton extends StatelessWidget {
   final VoidCallback onPressed;
   const _ShareButton({required this.onPressed});

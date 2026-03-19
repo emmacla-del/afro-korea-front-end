@@ -50,9 +50,7 @@ class ApiService {
       sendTimeout: _timeout,
       contentType: 'application/json; charset=utf-8',
       headers: {'Accept': 'application/json'},
-      validateStatus: (status) {
-        return status != null && status < 500;
-      },
+      validateStatus: (status) => status != null && status < 500,
     );
 
     _dio = Dio(baseOptions);
@@ -77,9 +75,7 @@ class ApiService {
     debugPrint('🔐 Bearer token set for authentication');
   }
 
-  void clearBearerToken() {
-    setBearerToken(null);
-  }
+  void clearBearerToken() => setBearerToken(null);
 
   String? get bearerToken => _bearerToken;
 
@@ -97,7 +93,7 @@ class ApiService {
     String? neighbourhoodId,
   }) async {
     try {
-      final Map<String, dynamic> requestBody = {
+      final body = <String, dynamic>{
         'phone': phone.trim(),
         'password': password,
         'role': role.trim().toUpperCase(),
@@ -106,19 +102,15 @@ class ApiService {
           'referralCode': referralCode,
         if (neighbourhoodId != null && neighbourhoodId.isNotEmpty)
           'neighbourhoodId': neighbourhoodId,
+        if (supplierData != null) 'supplierData': supplierData,
       };
-      if (supplierData != null) {
-        requestBody['supplierData'] = supplierData;
-      }
       final response = await _dio.post<Map<String, dynamic>>(
         '/auth/register',
-        data: requestBody,
+        data: body,
       );
-
       if (response.statusCode == 200 || response.statusCode == 201) {
         return response.data ?? {};
       }
-
       throw ApiException(
         message: _extractResponseError(response.data) ?? 'Registration failed',
         statusCode: response.statusCode,
@@ -138,11 +130,9 @@ class ApiService {
         '/auth/login',
         data: {'phone': phone.trim(), 'password': password},
       );
-
       if (response.statusCode == 200 || response.statusCode == 201) {
         return response.data ?? {};
       }
-
       throw ApiException(
         message: _extractResponseError(response.data) ?? 'Login failed',
         statusCode: response.statusCode,
@@ -160,14 +150,11 @@ class ApiService {
   // User Profile
   // -------------------------------------------------------------------------
 
-  /// Fetch the current user's profile (includes neighbourhood object)
   Future<Map<String, dynamic>> getUserProfile() async {
     try {
       debugPrint('📡 Fetching user profile from /user/profile');
       final response = await _dio.get<Map<String, dynamic>>('/user/profile');
-      if (response.statusCode == 200) {
-        return response.data ?? {};
-      }
+      if (response.statusCode == 200) return response.data ?? {};
       throw ApiException(
         message: 'Failed to fetch user profile',
         statusCode: response.statusCode,
@@ -181,13 +168,11 @@ class ApiService {
     }
   }
 
-  /// Update the current user's profile (e.g., neighbourhood)
   Future<void> updateProfile({String? neighbourhoodId}) async {
     try {
-      final data = <String, dynamic>{};
-      if (neighbourhoodId != null) {
-        data['neighbourhoodId'] = neighbourhoodId;
-      }
+      final data = <String, dynamic>{
+        if (neighbourhoodId != null) 'neighbourhoodId': neighbourhoodId,
+      };
       await _dio.patch('/user/profile', data: data);
       debugPrint('✅ Profile updated');
     } on DioException catch (e) {
@@ -200,18 +185,16 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Neighbourhood endpoints
+  // Neighbourhood
   // -------------------------------------------------------------------------
 
-  /// Fetch list of neighbourhoods (with nested division and region)
   Future<List<Neighbourhood>> fetchNeighbourhoods() async {
     try {
       debugPrint('📡 Fetching neighbourhoods from /neighbourhoods');
       final response = await _dio.get<List<dynamic>>('/neighbourhoods');
       if (response.statusCode == 200) {
-        final data = response.data ?? [];
-        return data
-            .map((json) => Neighbourhood.fromJson(json as Map<String, dynamic>))
+        return (response.data ?? [])
+            .map((j) => Neighbourhood.fromJson(j as Map<String, dynamic>))
             .toList();
       }
       throw ApiException(
@@ -228,26 +211,23 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Customer endpoints
+  // Customer / Products
   // -------------------------------------------------------------------------
 
   Future<List<Product>> fetchProducts({bool nearMe = false}) async {
     try {
-      debugPrint('📡 Fetching products from /products (nearMe: $nearMe)');
+      debugPrint('📡 Fetching products (nearMe: $nearMe)');
       final response = await _dio.get<List<dynamic>>(
         '/products',
         queryParameters: {'nearMe': nearMe},
       );
-
       if (response.statusCode == 200) {
-        final data = response.data ?? [];
-        final products = data
+        final products = (response.data ?? [])
             .map((item) {
               try {
-                final json = item is Map<String, dynamic>
-                    ? item
-                    : <String, dynamic>{};
-                return Product.fromBackendApi(json);
+                return Product.fromBackendApi(
+                  item is Map<String, dynamic> ? item : {},
+                );
               } catch (e) {
                 debugPrint('⚠️ Error parsing product: $e');
                 return null;
@@ -258,20 +238,17 @@ class ApiService {
         debugPrint('✅ Fetched ${products.length} products');
         return products;
       }
-
       if (response.statusCode == 401) {
         throw ApiException(
           message: 'Unauthorized: Please log in to view products',
           statusCode: 401,
         );
       }
-
       throw ApiException(
         message: 'Unexpected error: ${response.statusCode}',
         statusCode: response.statusCode,
       );
     } on DioException catch (e) {
-      debugPrint('❌ Dio error fetching products: $e');
       throw ApiException(
         message: _getDioErrorMessage(e),
         statusCode: e.response?.statusCode,
@@ -281,7 +258,6 @@ class ApiService {
     } on ApiException {
       rethrow;
     } catch (e, st) {
-      debugPrint('❌ Unexpected error fetching products: $e');
       throw ApiException(
         message: 'Unexpected error: $e',
         originalError: e,
@@ -290,10 +266,8 @@ class ApiService {
     }
   }
 
-  /// Fetch a single product by ID
   Future<Product> fetchProductById(String productId) async {
     try {
-      debugPrint('📡 Fetching product by id: $productId');
       final response = await _dio.get<Map<String, dynamic>>(
         '/products/$productId',
       );
@@ -315,10 +289,8 @@ class ApiService {
 
   Future<Map<String, dynamic>> fetchPool(String poolId) async {
     try {
-      debugPrint('📡 Fetching pool: $poolId');
       final response = await _dio.get<Map<String, dynamic>>('/pools/$poolId');
       if (response.statusCode == 200 && response.data != null) {
-        debugPrint('✅ Fetched pool: $poolId');
         return response.data!;
       }
       throw ApiException(
@@ -339,13 +311,11 @@ class ApiService {
     required Map<String, dynamic> body,
   }) async {
     try {
-      debugPrint('📡 Committing to pool: $poolId');
       final response = await _dio.post<Map<String, dynamic>>(
         '/pools/$poolId/commit',
         data: body,
       );
       if (response.statusCode == 200 && response.data != null) {
-        debugPrint('✅ Successfully committed to pool: $poolId');
         return response.data!;
       }
       throw ApiException(
@@ -362,7 +332,7 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Team Deal endpoints
+  // Team Deals
   // -------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> createTeamDeal({
@@ -372,16 +342,14 @@ class ApiService {
     String? neighbourhoodId,
   }) async {
     try {
-      debugPrint('📡 Creating team deal for variant: $variantId');
-      final data = {
-        'variantId': variantId,
-        'teamPrice': teamPrice,
-        'minBuyers': minBuyers,
-        'neighbourhoodId': ?neighbourhoodId,
-      };
       final response = await _dio.post<Map<String, dynamic>>(
         '/pools/team',
-        data: data,
+        data: {
+          'variantId': variantId,
+          'teamPrice': teamPrice,
+          'minBuyers': minBuyers,
+          if (neighbourhoodId != null) 'neighbourhoodId': neighbourhoodId,
+        },
       );
       return response.data ?? {};
     } on DioException catch (e) {
@@ -395,11 +363,9 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getOpenTeamDeals() async {
     try {
-      debugPrint('📡 Fetching open team deals from /pools/team');
       final response = await _dio.get<List<dynamic>>('/pools/team');
       if (response.statusCode == 200) {
-        final data = response.data ?? [];
-        return data.map((item) => item as Map<String, dynamic>).toList();
+        return (response.data ?? []).cast<Map<String, dynamic>>();
       }
       throw ApiException(
         message: 'Failed to fetch team deals',
@@ -416,7 +382,6 @@ class ApiService {
 
   Future<Map<String, dynamic>> joinTeamDeal(String poolId) async {
     try {
-      debugPrint('📡 Joining team deal: $poolId');
       final response = await _dio.post<Map<String, dynamic>>(
         '/pools/$poolId/join',
       );
@@ -431,12 +396,11 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Check-in endpoints
+  // Check-in
   // -------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> checkIn() async {
     try {
-      debugPrint('📡 Checking in at /checkin');
       final response = await _dio.post<Map<String, dynamic>>('/checkin');
       return response.data ?? {};
     } on DioException catch (e) {
@@ -450,7 +414,6 @@ class ApiService {
 
   Future<Map<String, dynamic>> getCheckinStreak() async {
     try {
-      debugPrint('📡 Fetching check‑in streak from /checkin/streak');
       final response = await _dio.get<Map<String, dynamic>>('/checkin/streak');
       return response.data ?? {};
     } on DioException catch (e) {
@@ -463,12 +426,11 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Referral endpoints
+  // Referral
   // -------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> generateReferralCode() async {
     try {
-      debugPrint('📡 Generating referral code at /referral/generate');
       final response = await _dio.post<Map<String, dynamic>>(
         '/referral/generate',
       );
@@ -484,7 +446,6 @@ class ApiService {
 
   Future<Map<String, dynamic>> getReferralStats() async {
     try {
-      debugPrint('📡 Fetching referral stats from /referral/stats');
       final response = await _dio.get<Map<String, dynamic>>('/referral/stats');
       return response.data ?? {};
     } on DioException catch (e) {
@@ -502,11 +463,9 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> fetchMyOrders() async {
     try {
-      debugPrint('📡 Fetching my orders from /me/orders');
       final response = await _dio.get<List<dynamic>>('/me/orders');
       if (response.statusCode == 200) {
-        final data = response.data ?? [];
-        return data.map((item) => item as Map<String, dynamic>).toList();
+        return (response.data ?? []).cast<Map<String, dynamic>>();
       }
       if (response.statusCode == 401) {
         throw ApiException(
@@ -531,51 +490,39 @@ class ApiService {
     List<Map<String, dynamic>> items,
   ) async {
     try {
-      debugPrint('📡 Creating order with ${items.length} items');
-
       if (items.isEmpty) {
         throw ApiException(
           message: 'Cannot create order: Cart is empty',
           statusCode: 400,
         );
       }
-
       if (_bearerToken == null) {
         throw ApiException(
           message: 'Unauthorized: Please log in to create orders',
           statusCode: 401,
         );
       }
-
       final response = await _dio.post<Map<String, dynamic>>(
         '/orders/direct',
         data: {'items': items, 'timestamp': DateTime.now().toIso8601String()},
       );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        if (response.data != null) {
-          debugPrint(
-            '✅ Order created successfully: ${response.data?['orderId']}',
-          );
-          return response.data!;
-        }
+      if ((response.statusCode == 200 || response.statusCode == 201) &&
+          response.data != null) {
+        return response.data!;
       }
-
       if (response.statusCode == 401) {
         throw ApiException(
           message: 'Unauthorized: Token may be expired',
           statusCode: 401,
         );
       }
-
       if (response.statusCode == 400) {
-        final errorMessage = response.data?['message'] ?? 'Invalid order data';
         throw ApiException(
-          message: 'Validation error: $errorMessage',
+          message:
+              'Validation error: ${response.data?['message'] ?? 'Invalid order data'}',
           statusCode: 400,
         );
       }
-
       throw ApiException(
         message: 'Failed to create order',
         statusCode: response.statusCode,
@@ -598,19 +545,15 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Supplier endpoints
+  // Supplier
   // -------------------------------------------------------------------------
 
   Future<List<SupplierProduct>> getSupplierProducts() async {
     try {
-      debugPrint('📡 Fetching supplier products from /supplier/products');
       final response = await _dio.get<List<dynamic>>('/supplier/products');
       if (response.statusCode == 200) {
-        final data = response.data ?? [];
-        return data
-            .map(
-              (json) => SupplierProduct.fromJson(json as Map<String, dynamic>),
-            )
+        return (response.data ?? [])
+            .map((j) => SupplierProduct.fromJson(j as Map<String, dynamic>))
             .toList();
       }
       throw ApiException(
@@ -721,7 +664,6 @@ class ApiService {
           }),
         ),
       });
-
       final response = await _dio.post<Map<String, dynamic>>(
         '/supplier/products',
         data: formData,
@@ -735,8 +677,35 @@ class ApiService {
     }
   }
 
+  /// Submits a verification request for the current supplier.
+  /// The backend sets verificationStatus to PENDING immediately;
+  /// an admin then reviews and sets VERIFIED or REJECTED.
+  Future<Map<String, dynamic>> requestSupplierVerification() async {
+    try {
+      debugPrint('📡 Requesting supplier verification');
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/supplier/request-verification',
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return response.data ?? {'message': 'Request submitted'};
+      }
+      throw ApiException(
+        message:
+            _extractResponseError(response.data) ??
+            'Failed to submit verification request',
+        statusCode: response.statusCode,
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
   // -------------------------------------------------------------------------
-  // Admin endpoints
+  // Admin
   // -------------------------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> fetchPendingSuppliers() async {
@@ -781,12 +750,8 @@ class ApiService {
 
   Future<Map<String, dynamic>?> checkHealth() async {
     try {
-      debugPrint('📡 Checking health at /health');
       final response = await _dio.get<Map<String, dynamic>>('/health');
-      if (response.statusCode == 200) {
-        return response.data;
-      }
-      return null;
+      return response.statusCode == 200 ? response.data : null;
     } on DioException catch (e) {
       debugPrint('❌ Health check failed: $e');
       return null;
@@ -794,7 +759,7 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Generic methods
+  // Generic helpers
   // -------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> get(String path) async {
@@ -852,6 +817,11 @@ class ApiService {
     }
   }
 
+  void close() {
+    _dio.close();
+    debugPrint('🔌 ApiService closed');
+  }
+
   // -------------------------------------------------------------------------
   // Error helpers
   // -------------------------------------------------------------------------
@@ -867,7 +837,7 @@ class ApiService {
       case DioExceptionType.badResponse:
         return 'Server error (${error.response?.statusCode}): ${error.response?.statusMessage}';
       case DioExceptionType.badCertificate:
-        return 'SSL certificate error. This backend may have SSL issues.';
+        return 'SSL certificate error.';
       case DioExceptionType.connectionError:
         return 'Connection error. Backend may be unreachable.';
       case DioExceptionType.unknown:
@@ -880,24 +850,17 @@ class ApiService {
   static String? _extractResponseError(Object? data) {
     if (data is Map<String, dynamic>) {
       final message = data['message'];
-      if (message is String && message.trim().isNotEmpty) {
-        return message.trim();
-      }
+      if (message is String && message.trim().isNotEmpty) return message.trim();
       if (message is List && message.isNotEmpty) {
         return message.map((e) => e.toString()).join(', ');
       }
     }
     return null;
   }
-
-  void close() {
-    _dio.close();
-    debugPrint('🔌 ApiService closed');
-  }
 }
 
 // -------------------------------------------------------------------------
-// Interceptors (unchanged)
+// Interceptors
 // -------------------------------------------------------------------------
 
 class _UserIdInterceptor extends Interceptor {
@@ -910,9 +873,6 @@ class _UserIdInterceptor extends Interceptor {
       final userId = await UserStore.getUserId();
       if (userId != null && userId.isNotEmpty) {
         options.headers['x-user-id'] = userId;
-        debugPrint('🔑 x-user-id header added: $userId');
-      } else {
-        debugPrint('⚠️ No user ID found – x-user-id header not added');
       }
     } catch (e) {
       debugPrint('❌ Failed to read user ID: $e');
@@ -921,68 +881,57 @@ class _UserIdInterceptor extends Interceptor {
   }
 }
 
-class _LoggingInterceptor extends Interceptor {
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    debugPrint(
-      '📤 [${options.method}] ${options.uri}\n'
-      'Headers: ${options.headers}\n'
-      'Timeout: ${options.sendTimeout}ms',
-    );
-    super.onRequest(options, handler);
-  }
-
-  @override
-  void onResponse(Response response, ResponseInterceptorHandler handler) {
-    final responseStr = response.data.toString().replaceAll('\n', ' ');
-    final truncated = responseStr.length > 200
-        ? '${responseStr.substring(0, 200)}...'
-        : responseStr;
-    debugPrint(
-      '📥 [${response.statusCode}] ${response.requestOptions.uri}\n'
-      'Response: $truncated',
-    );
-    super.onResponse(response, handler);
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
-    debugPrint('❌ [Error] ${err.requestOptions.uri}\n$err');
-    super.onError(err, handler);
-  }
-}
-
 class _AuthInterceptor extends Interceptor {
   final ApiService _apiService;
-
   _AuthInterceptor(this._apiService);
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     if (_apiService.bearerToken != null) {
       options.headers['Authorization'] = 'Bearer ${_apiService.bearerToken}';
-      debugPrint('🔐 Bearer token injected');
     }
     super.onRequest(options, handler);
+  }
+}
+
+class _LoggingInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    debugPrint('📤 [${options.method}] ${options.uri}');
+    super.onRequest(options, handler);
+  }
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) {
+    final body = response.data.toString().replaceAll('\n', ' ');
+    final preview = body.length > 200 ? '${body.substring(0, 200)}…' : body;
+    debugPrint(
+      '📥 [${response.statusCode}] ${response.requestOptions.uri} — $preview',
+    );
+    super.onResponse(response, handler);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    debugPrint('❌ [Error] ${err.requestOptions.uri} — $err');
+    super.onError(err, handler);
   }
 }
 
 class _ErrorInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (err.response != null) {
-      switch (err.response?.statusCode) {
-        case 401:
-          debugPrint('🔓 Unauthorized (401): Token may be expired');
-        case 403:
-          debugPrint('🚫 Forbidden (403): Insufficient permissions');
-        case 404:
-          debugPrint('📭 Not Found (404): Endpoint does not exist');
-        case 500:
-          debugPrint('💥 Server Error (500): Internal server error');
-        case 503:
-          debugPrint('🔧 Service Unavailable (503): Backend is down');
-      }
+    switch (err.response?.statusCode) {
+      case 401:
+        debugPrint('🔓 401 Unauthorized');
+      case 403:
+        debugPrint('🚫 403 Forbidden');
+      case 404:
+        debugPrint('📭 404 Not Found');
+      case 500:
+        debugPrint('💥 500 Internal Server Error');
+      case 503:
+        debugPrint('🔧 503 Service Unavailable');
     }
     super.onError(err, handler);
   }

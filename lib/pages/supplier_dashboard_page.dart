@@ -3,11 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api/supplier_api.dart';
 import '../app/app_role.dart';
+import '../services/api_service.dart';
 import '../widgets/role_mode_banner.dart';
 import 'catalog_import_page.dart';
 import 'supplier_orders_page.dart';
 import 'supplier_product_create_page.dart';
 import 'supplier_products_page.dart';
+
+// Statuses that allow requesting verification
+const _requestableStatuses = {'UNVERIFIED', 'NOT_VERIFIED', 'NONE', 'REJECTED'};
 
 class SupplierDashboardPage extends StatefulWidget {
   final AppRole currentRole;
@@ -27,17 +31,22 @@ class SupplierDashboardPage extends StatefulWidget {
 
 class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
   SupplierDashboardStats _stats = SupplierDashboardStats.placeholder();
-  bool _isLoading = false;
+  bool _statsLoading = false;
   DateTime? _lastRefreshedAt;
   Timer? _ticker;
+
+  Map<String, dynamic>? _userProfile;
+  bool _profileLoading = true;
+  String? _profileError;
+  bool _requestingVerification = false;
 
   @override
   void initState() {
     super.initState();
+    _loadProfile();
     _refreshStats();
     _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (!mounted) return;
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
 
@@ -47,38 +56,249 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
     super.dispose();
   }
 
-  Future<void> _refreshStats() async {
-    if (_isLoading) return;
-    setState(() => _isLoading = true);
+  // ── Data loading ───────────────────────────────────────────────────────────
 
+  Future<void> _loadProfile() async {
+    setState(() {
+      _profileLoading = true;
+      _profileError = null;
+    });
     try {
-      final api = SupplierApi();
-      final productSummaryFuture = api.getProductSummary();
-      final orderSummaryFuture = api.getOrderSummary();
-      final latestImportFuture = api.getLastCatalogImport();
-
-      final productSummary = await productSummaryFuture;
-      final orderSummary = await orderSummaryFuture;
-      final latestImport = await latestImportFuture;
-
+      final profile = await ApiService.instance.getUserProfile();
       if (!mounted) return;
       setState(() {
+        _userProfile = profile;
+        _profileLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _profileError = e.toString();
+        _profileLoading = false;
+      });
+    }
+  }
+
+  Future<void> _refreshStats() async {
+    if (_statsLoading) return;
+    setState(() => _statsLoading = true);
+    try {
+      final api = SupplierApi();
+      final results = await Future.wait([
+        api.getProductSummary(),
+        api.getOrderSummary(),
+        api.getLastCatalogImport(),
+      ]);
+      if (!mounted) return;
+      final productSummary = results[0] as dynamic;
+      final orderSummary = results[1] as dynamic;
+      final latestImport = results[2] as dynamic;
+      setState(() {
         _stats = SupplierDashboardStats(
-          totalProducts: productSummary.total,
-          openPoolProducts: productSummary.openPool,
-          pendingPurchaseOrders: orderSummary.pending,
-          shippedPurchaseOrders: orderSummary.shipped,
-          lastCatalogImportAt: latestImport.lastImportedAt,
+          totalProducts: productSummary.total as int,
+          openPoolProducts: productSummary.openPool as int,
+          pendingPurchaseOrders: orderSummary.pending as int,
+          shippedPurchaseOrders: orderSummary.shipped as int,
+          lastCatalogImportAt: latestImport.lastImportedAt as DateTime?,
         );
         _lastRefreshedAt = DateTime.now();
       });
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _stats = _stats);
+      // Keep existing stats on error — no need to wipe the dashboard
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _statsLoading = false);
     }
   }
+
+  Future<void> _requestVerification() async {
+    setState(() => _requestingVerification = true);
+    try {
+      final result = await ApiService.instance.requestSupplierVerification();
+      if (!mounted) return;
+
+      // Optimistic update: flip status to PENDING in local profile
+      final updatedProfile = Map<String, dynamic>.from(_userProfile ?? {});
+      final supplier = Map<String, dynamic>.from(
+        (updatedProfile['supplier'] as Map?)?.cast<String, dynamic>() ?? {},
+      );
+      supplier['verificationStatus'] = 'PENDING';
+      updatedProfile['supplier'] = supplier;
+
+      setState(() => _userProfile = updatedProfile);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Verification request submitted'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _requestingVerification = false);
+    }
+  }
+
+  // ── Verification card ──────────────────────────────────────────────────────
+
+  Widget _buildVerificationCard() {
+    if (_profileLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_profileError != null) {
+      return Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Could not load profile: $_profileError',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              TextButton(onPressed: _loadProfile, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final supplier = _userProfile?['supplier'];
+    if (supplier == null) return const SizedBox.shrink();
+
+    final status =
+        (supplier['verificationStatus'] as String?)?.toUpperCase() ?? 'UNKNOWN';
+    final canRequest = _requestableStatuses.contains(status);
+
+    final (
+      Color color,
+      IconData icon,
+      String label,
+      String message,
+    ) = switch (status) {
+      'VERIFIED' => (
+        Colors.green,
+        Icons.verified,
+        'Verified',
+        'Your account is verified. You can create products and team deals.',
+      ),
+      'PENDING' => (
+        Colors.orange,
+        Icons.hourglass_top,
+        'Pending review',
+        'Your request is under review. We\'ll notify you once it\'s approved.',
+      ),
+      'REJECTED' => (
+        Colors.red,
+        Icons.cancel,
+        'Rejected',
+        'Your verification was rejected. You may apply again.',
+      ),
+      _ => (
+        Colors.grey,
+        Icons.help_outline,
+        'Not verified',
+        'Submit a verification request to start selling on the platform.',
+      ),
+    };
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Account Verification',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            if (canRequest) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _requestingVerification
+                      ? null
+                      : _requestVerification,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  icon: _requestingVerification
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send, size: 16),
+                  label: Text(
+                    status == 'REJECTED'
+                        ? 'Re-apply for Verification'
+                        : 'Request Verification',
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -92,27 +312,30 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
             onRoleChanged: widget.onRoleChanged,
           ),
           const SizedBox(height: 12),
+
+          _buildVerificationCard(),
+
           _QuickAddCard(
-            isLoading: _isLoading,
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const SupplierProductCreatePage(),
-                ),
-              );
-            },
+            isLoading: _statsLoading,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SupplierProductCreatePage(),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
+
           _DashboardStatRow(
-            isLoading: _isLoading,
+            isLoading: _statsLoading,
             lastRefreshedAt: _lastRefreshedAt,
             onRefresh: _refreshStats,
           ),
           const SizedBox(height: 12),
+
           _DashboardNavCard(
             title: 'Products',
             subtitle:
-                '${_stats.totalProducts} total | ${_stats.openPoolProducts} with OPEN pools',
+                '${_stats.totalProducts} total · ${_stats.openPoolProducts} with open pools',
             leadingIcon: Icons.inventory_2,
             trailing: _CountPills(
               pills: [
@@ -120,20 +343,19 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
                 _Pill(label: 'Open', value: _stats.openPoolProducts),
               ],
             ),
-            enabled: !_isLoading,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const SupplierProductsPage(),
-                ),
-              );
-            },
+            enabled: !_statsLoading,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SupplierProductsPage(),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
+
           _DashboardNavCard(
             title: 'Purchase Orders',
             subtitle:
-                '${_stats.pendingPurchaseOrders} pending | ${_stats.shippedPurchaseOrders} shipped',
+                '${_stats.pendingPurchaseOrders} pending · ${_stats.shippedPurchaseOrders} shipped',
             leadingIcon: Icons.receipt_long,
             trailing: _CountPills(
               pills: [
@@ -141,16 +363,15 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
                 _Pill(label: 'Shipped', value: _stats.shippedPurchaseOrders),
               ],
             ),
-            enabled: !_isLoading,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const SupplierOrdersPage(),
-                ),
-              );
-            },
+            enabled: !_statsLoading,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SupplierOrdersPage(),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
+
           _DashboardNavCard(
             title: 'Catalog Import',
             subtitle: _stats.lastCatalogImportAt == null
@@ -161,20 +382,31 @@ class _SupplierDashboardPageState extends State<SupplierDashboardPage> {
               Icons.chevron_right,
               color: Theme.of(context).colorScheme.outline,
             ),
-            enabled: !_isLoading,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CatalogImportPage(),
-                ),
-              );
-            },
+            enabled: !_statsLoading,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const CatalogImportPage(),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+String _formatDateTime(DateTime dt) {
+  final now = DateTime.now();
+  final diff = now.difference(dt);
+  if (diff.inMinutes < 1) return 'just now';
+  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+  if (diff.inDays < 1) return '${diff.inHours}h ago';
+  return '${dt.day}/${dt.month}/${dt.year}';
+}
+
+// ── Sub-widgets (unchanged from your original) ────────────────────────────────
 
 class SupplierDashboardStats {
   final int totalProducts;
@@ -188,16 +420,47 @@ class SupplierDashboardStats {
     required this.openPoolProducts,
     required this.pendingPurchaseOrders,
     required this.shippedPurchaseOrders,
-    required this.lastCatalogImportAt,
+    this.lastCatalogImportAt,
   });
 
-  factory SupplierDashboardStats.placeholder() {
-    return SupplierDashboardStats(
-      totalProducts: 12,
-      openPoolProducts: 3,
-      pendingPurchaseOrders: 5,
-      shippedPurchaseOrders: 2,
-      lastCatalogImportAt: DateTime.now().subtract(const Duration(days: 2)),
+  factory SupplierDashboardStats.placeholder() => const SupplierDashboardStats(
+    totalProducts: 0,
+    openPoolProducts: 0,
+    pendingPurchaseOrders: 0,
+    shippedPurchaseOrders: 0,
+  );
+}
+
+class _Pill {
+  final String label;
+  final int value;
+  const _Pill({required this.label, required this.value});
+}
+
+class _CountPills extends StatelessWidget {
+  final List<_Pill> pills;
+  const _CountPills({required this.pills});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: pills
+          .map(
+            (p) => Container(
+              margin: const EdgeInsets.only(left: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${p.value} ${p.label}',
+                style: const TextStyle(fontSize: 11),
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }
@@ -205,41 +468,22 @@ class SupplierDashboardStats {
 class _QuickAddCard extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onPressed;
-
   const _QuickAddCard({required this.isLoading, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 1,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            const Icon(Icons.add_box_outlined, size: 28),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Quick Add Product',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Create a product and its first variant',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            FilledButton(
-              onPressed: isLoading ? null : onPressed,
-              child: const Text('Add'),
-            ),
-          ],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: const Icon(Icons.add_box, color: Color(0xFF00C471)),
+        title: const Text(
+          'Add New Product',
+          style: TextStyle(fontWeight: FontWeight.w600),
         ),
+        subtitle: const Text('Create a product listing'),
+        trailing: const Icon(Icons.chevron_right),
+        enabled: !isLoading,
+        onTap: onPressed,
       ),
     );
   }
@@ -258,33 +502,30 @@ class _DashboardStatRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = isLoading
-        ? 'Refreshing...'
-        : lastRefreshedAt == null
-        ? 'Pull to refresh'
-        : 'Updated ${_formatRelative(lastRefreshedAt!)}';
-
+    final label = lastRefreshedAt == null
+        ? 'Never refreshed'
+        : 'Updated ${_formatDateTime(lastRefreshedAt!)}';
     return Row(
       children: [
-        Icon(
-          isLoading ? Icons.sync : Icons.info_outline,
-          size: 16,
-          color: Theme.of(context).colorScheme.outline,
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
+        const Spacer(),
+        if (isLoading)
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 18),
+            onPressed: onRefresh,
+            tooltip: 'Refresh',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
-        ),
-        TextButton.icon(
-          onPressed: isLoading ? null : onRefresh,
-          icon: const Icon(Icons.refresh, size: 16),
-          label: const Text('Refresh'),
-        ),
       ],
     );
   }
@@ -310,71 +551,18 @@ class _DashboardNavCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        enabled: enabled,
-        onTap: enabled ? onTap : null,
-        leading: Icon(leadingIcon),
-        title: Text(title),
-        subtitle: Text(subtitle),
+        leading: Icon(
+          leadingIcon,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
         trailing: trailing,
+        enabled: enabled,
+        onTap: onTap,
       ),
     );
   }
-}
-
-class _CountPills extends StatelessWidget {
-  final List<_Pill> pills;
-
-  const _CountPills({required this.pills});
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      children: pills
-          .map(
-            (p) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outline.withAlpha(60),
-                ),
-              ),
-              child: Text(
-                '${p.label}: ${p.value}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
-}
-
-class _Pill {
-  final String label;
-  final int value;
-
-  const _Pill({required this.label, required this.value});
-}
-
-String _formatDateTime(DateTime dt) {
-  final y = dt.year.toString().padLeft(4, '0');
-  final m = dt.month.toString().padLeft(2, '0');
-  final d = dt.day.toString().padLeft(2, '0');
-  final hh = dt.hour.toString().padLeft(2, '0');
-  final mm = dt.minute.toString().padLeft(2, '0');
-  return '$y-$m-$d $hh:$mm';
-}
-
-String _formatRelative(DateTime dt) {
-  final diff = DateTime.now().difference(dt);
-  if (diff.inSeconds < 10) return 'just now';
-  if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
-  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-  if (diff.inDays < 1) return '${diff.inHours}h ago';
-  return '${diff.inDays}d ago';
 }

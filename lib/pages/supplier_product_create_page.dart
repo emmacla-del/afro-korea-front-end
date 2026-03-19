@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
-import '../models/neighbourhood.dart'; // 👈 NEW
+import '../models/neighbourhood.dart';
 
 class SupplierProductCreatePage extends StatefulWidget {
   const SupplierProductCreatePage({super.key});
@@ -21,7 +21,6 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
   final _stockController = TextEditingController();
   final _currencyController = TextEditingController(text: 'XAF');
 
-  // 👇 NEW: neighbourhood state
   List<Neighbourhood> _neighbourhoods = [];
   String? _selectedNeighbourhoodId;
   bool _neighbourhoodsLoading = true;
@@ -98,16 +97,14 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
       final stock = int.parse(_stockController.text.trim());
       final currency = _currencyController.text.trim().toUpperCase();
 
-      // 👇 NEW: include neighbourhoodId in fields (optional)
       final fields = {
         'product_name': name,
-        'description': ?description,
+        if (description != null) 'description': description,
         'price': price.toString(),
         'stock': stock.toString(),
         'currency': currency,
         if (_selectedNeighbourhoodId != null)
-          'neighbourhoodId':
-              _selectedNeighbourhoodId, // requires backend support
+          'neighbourhoodId': _selectedNeighbourhoodId!,
       };
 
       await ApiService.instance.createSupplierProductWithImages(
@@ -130,7 +127,6 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
     }
   }
 
-  // ✅ Works on both web and mobile
   Widget _buildImagePreview(XFile image, int index) {
     return Stack(
       children: [
@@ -291,7 +287,7 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 👇 NEW: Neighbourhood dropdown
+                  // Neighbourhood dropdown
                   if (_neighbourhoodsLoading)
                     const Center(child: CircularProgressIndicator())
                   else if (_neighbourhoodsError != null)
