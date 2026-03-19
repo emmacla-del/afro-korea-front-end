@@ -6,10 +6,10 @@ import '../pages/supplier_dashboard_page.dart';
 import '../pages/supplier_products_page.dart';
 import '../pages/supplier_orders_page.dart';
 import '../pages/admin_dashboard_page.dart';
-import '../pages/my_orders_page.dart'; // 👈 import the orders page
+import '../pages/my_orders_page.dart';
 import '../pages/supplier_product_create_page.dart';
-import '../pages/team_deals_page.dart';
-import '../services/api_service.dart'; // 👈 for check‑in API
+import '../pages/team_deals_page.dart'; // 👈 still used for drawer
+import '../services/api_service.dart';
 
 class MainScaffold extends StatefulWidget {
   final AppRole role;
@@ -64,15 +64,11 @@ class _MainScaffoldState extends State<MainScaffold> {
               isAdmin: false,
             ),
           ),
+          // 👇 Team Deals tab removed
           (
-            icon: Icons.groups,
-            label: 'Team Deals',
-            page: const TeamDealsPage(),
-          ),
-          (
-            icon: Icons.shopping_bag, // 👈 better icon for orders
+            icon: Icons.shopping_bag,
             label: 'My Orders',
-            page: const MyOrdersPage(), // 👈 use the new orders page
+            page: const MyOrdersPage(),
           ),
           (
             icon: Icons.person,
@@ -151,7 +147,6 @@ class _MainScaffoldState extends State<MainScaffold> {
     }
   }
 
-  // 👇 Method to handle check‑in
   Future<void> _handleCheckIn() async {
     try {
       final result = await ApiService.instance.checkIn();
@@ -179,14 +174,12 @@ class _MainScaffoldState extends State<MainScaffold> {
       appBar: AppBar(
         title: Text(_getTitleForRole(widget.role)),
         actions: [
-          // 👇 Check‑in button for customers only
           if (widget.role == AppRole.customer)
             IconButton(
               icon: const Icon(Icons.calendar_today),
               tooltip: 'Daily Check‑in',
               onPressed: _handleCheckIn,
             ),
-          // Role switch button (visible for all except admin)
           if (widget.role != AppRole.admin)
             IconButton(
               tooltip: 'Switch role',
@@ -215,7 +208,6 @@ class _MainScaffoldState extends State<MainScaffold> {
         index: _selectedIndex,
         children: _pages.map((p) => p.page).toList(),
       ),
-      // 👇 FIX: Wrap BottomNavigationBar with SafeArea to avoid taskbar overlap
       bottomNavigationBar: SafeArea(
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,
@@ -237,8 +229,31 @@ class _MainScaffoldState extends State<MainScaffold> {
       floatingActionButton: _buildFAB(),
       drawer: Drawer(
         child: ListView(
+          padding: EdgeInsets.zero,
           children: [
-            const DrawerHeader(child: Text('Menu')),
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Color(0xFF00C471)),
+              child: Text(
+                'Menu',
+                style: TextStyle(color: Colors.white, fontSize: 24),
+              ),
+            ),
+            // 👇 My Team Deals item (only for customers)
+            if (widget.role == AppRole.customer)
+              ListTile(
+                leading: const Icon(Icons.groups),
+                title: const Text('My Team Deals'),
+                onTap: () {
+                  Navigator.pop(context); // close drawer
+                  // Navigate to TeamDealsPage (or a dedicated page)
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const TeamDealsPage()),
+                  );
+                },
+              ),
+            // You can add other drawer items here if needed (e.g., settings)
+            const Divider(),
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Logout'),

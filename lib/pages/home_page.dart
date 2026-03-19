@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:transparent_image/transparent_image.dart';
+
 import '../app/app_role.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
@@ -26,6 +30,7 @@ class _HomePageState extends State<HomePage> {
   List<Product> _products = [];
   bool _isLoading = true;
   String? _error;
+  bool _nearMe = false; // 👈 NEW
 
   @override
   void initState() {
@@ -39,29 +44,26 @@ class _HomePageState extends State<HomePage> {
       _error = null;
     });
     try {
-      final products = await ApiService.instance.fetchProducts();
-
-      // 🔍 TEMP DEBUG — remove after fixing
-      for (final p in products) {
-        debugPrint('🏊 Product: ${p.title}');
-        debugPrint('   variants count: ${p.variants?.length ?? 0}');
-        for (final v in p.variants ?? []) {
-          final pools = v['pools'] as List?;
-          debugPrint('   variant pools: $pools');
-        }
-      }
-
+      final products = await ApiService.instance.fetchProducts(
+        nearMe: _nearMe,
+      ); // 👈 pass filter
       if (!mounted) return;
       setState(() {
         _products = products;
         _isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  void _toggleNearMe(bool? value) {
+    if (value != null) {
+      setState(() => _nearMe = value);
+      _loadProducts(); // re‑fetch with new filter
     }
   }
 
@@ -98,51 +100,64 @@ class _HomePageState extends State<HomePage> {
             ),
 
           SliverToBoxAdapter(
-            child: Container(height: 1, color: Colors.grey.shade100),
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.card_giftcard, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Invite friends & earn rewards 🎁",
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 👇 NEW: "Near Me" toggle
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  const Text('Show deals near me'),
+                  const SizedBox(width: 8),
+                  Switch(value: _nearMe, onChanged: _toggleNearMe),
+                ],
+              ),
+            ),
           ),
 
           SliverPadding(
-            padding: EdgeInsets.zero,
+            padding: const EdgeInsets.all(12),
             sliver: _isLoading
                 ? const SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 300,
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
+                    child: Center(child: CircularProgressIndicator()),
                   )
                 : _error != null
                 ? SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 300,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('Error: $_error'),
-                            const SizedBox(height: 8),
-                            ElevatedButton(
-                              onPressed: _loadProducts,
-                              child: const Text('Retry'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    child: Center(child: Text("Error: $_error")),
                   )
                 : _products.isEmpty
                 ? const SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 300,
-                      child: Center(child: Text('No products available')),
-                    ),
+                    child: Center(child: Text("No products available")),
                   )
                 : SliverGrid(
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
-                          childAspectRatio: 0.58,
-                          crossAxisSpacing: 1, // ✅ hairline gap
-                          mainAxisSpacing: 1, // ✅ hairline gap
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio:
+                              0.65, // Calibrated for dual-action frame
                         ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) =>
@@ -157,199 +172,448 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _ProductTile extends StatelessWidget {
+// ==================== Product Tile with Dual-Action Frame ====================
+class _ProductTile extends StatefulWidget {
   final Product product;
-
   const _ProductTile({required this.product});
 
   @override
-  Widget build(BuildContext context) {
-    final imageUrl = product.images?.isNotEmpty == true
-        ? product.images!.first
-        : null;
-    final soloPrice = product.price ?? 0;
-    final groupPrice = product.teamPrice;
-    final hasGroup = product.hasActiveTeamDeal;
-    final discount = product.discountPercent;
-    final current = product.currentBuyers ?? 0;
-    final min = product.minBuyers ?? 0;
-    final supplierName = product.supplier?['displayName'] ?? 'Unknown supplier';
+  State<_ProductTile> createState() => _ProductTileState();
+}
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProductDetailPage(productId: product.id),
+class _ProductTileState extends State<_ProductTile> {
+  Timer? _timer;
+  late Duration _timeLeft;
+
+  @override
+  void initState() {
+    super.initState();
+    _timeLeft = widget.product.timeLeft;
+    if (widget.product.hasActiveTeamDeal) _startTimer();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _timeLeft = widget.product.timeLeft;
+        if (_timeLeft.inSeconds <= 0) _timer?.cancel();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    if (d.inSeconds <= 0) return "00:00:00";
+    final hours = d.inHours.toString().padLeft(2, '0');
+    final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return "$hours:$minutes:$seconds";
+  }
+
+  // Navigation / action methods – all parameterless
+  void _goToDetail() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProductDetailPage(productId: widget.product.id),
+      ),
+    );
+  }
+
+  void _buyAlone() {
+    // TODO: Implement solo purchase flow
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Buy Alone - not implemented yet')),
+    );
+  }
+
+  void _joinGroup() {
+    if (widget.product.activeTeamDealPoolId != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProductDetailPage(
+            productId: widget.product.id,
+            initialPoolId: widget.product.activeTeamDealPoolId,
           ),
-        );
-      },
-      child: Container(
+        ),
+      );
+    } else {
+      _goToDetail();
+    }
+  }
+
+  void _startGroup() {
+    // Navigate to detail page; it will handle starting a new deal
+    _goToDetail();
+  }
+
+  void _shareDeal() {
+    Share.share(
+      "🔥 Check out this deal on ${widget.product.title}!\n"
+      "Price: ${widget.product.price} XAF\n"
+      "https://yourapp.com/product/${widget.product.id}",
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.product;
+    final isExpired = _timeLeft.inSeconds <= 0;
+    final hasActive = p.hasActiveTeamDeal && !isExpired;
+    final imageUrl = p.images?.isNotEmpty == true ? p.images!.first : null;
+
+    return Container(
+      decoration: BoxDecoration(
         color: Colors.white,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ✅ Portrait image — no padding, fills width
-            AspectRatio(
-              aspectRatio: 0.85,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Container(
-                    color: Colors.white,
-                    child: imageUrl == null
-                        ? const Center(
-                            child: Icon(
-                              Icons.image,
-                              size: 48,
-                              color: Colors.grey,
-                            ),
-                          )
-                        : Image.network(
-                            imageUrl,
-                            fit: BoxFit.contain, // ✅ full product visible
-                            errorBuilder: (_, __, ___) => const Center(
-                              child: Icon(
-                                Icons.broken_image,
-                                size: 48,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Image Section (Clickable to Details)
+          GestureDetector(
+            onTap: _goToDetail,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+              child: AspectRatio(
+                aspectRatio: 1.1,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: imageUrl == null
+                          ? Container(
+                              color: Colors.grey.shade50,
+                              child: const Icon(
+                                Icons.image,
                                 color: Colors.grey,
                               ),
+                            )
+                          : FadeInImage(
+                              placeholder: MemoryImage(kTransparentImage),
+                              image: NetworkImage(imageUrl),
+                              fit: BoxFit.cover,
                             ),
-                            loadingBuilder: (_, child, progress) {
-                              if (progress == null) return child;
-                              return const Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-
-                  // Discount badge
-                  if (discount > 0)
-                    Positioned(
-                      top: 6,
-                      left: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE53935),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '$discount% OFF',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
                     ),
-                ],
-              ),
-            ),
-
-            // ✅ Info strip — compact like Coupang
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black87,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-
-                    // ✅ Pinduoduo dual price
-                    if (hasGroup && groupPrice != null) ...[
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          const Icon(
-                            Icons.groups,
-                            size: 12,
-                            color: Color(0xFF00C471),
-                          ),
-                          const SizedBox(width: 3),
-                          Flexible(
-                            child: Text(
-                              '${groupPrice.toStringAsFixed(0)} XAF',
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF00C471),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
+                    if (hasActive)
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          color: Colors.orange.withValues(alpha: 0.9),
+                          child: Text(
+                            "Ends: ${_formatDuration(_timeLeft)}",
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                        ],
-                      ),
-                      Text(
-                        'Solo: ${soloPrice.toStringAsFixed(0)} XAF',
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 10,
-                          decoration: TextDecoration.lineThrough,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: min > 0 ? (current / min).clamp(0.0, 1.0) : 0,
-                          backgroundColor: Colors.grey.shade200,
-                          valueColor: const AlwaysStoppedAnimation(
-                            Color(0xFF00C471),
-                          ),
-                          minHeight: 3,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$current/$min joined',
-                        style: const TextStyle(fontSize: 9, color: Colors.grey),
-                      ),
-                    ] else
-                      Text(
-                        '${soloPrice.toStringAsFixed(0)} XAF',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          color: Colors.black87,
-                        ),
-                      ),
-
-                    const Spacer(),
-
-                    Text(
-                      supplierName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
                   ],
                 ),
               ),
             ),
+          ),
+
+          // 2. Info Section
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Clickable Title
+                GestureDetector(
+                  onTap: _goToDetail,
+                  child: Text(
+                    p.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueGrey,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // 3. THE DUAL-ACTION FRAME
+                _buildDualActionFrame(),
+
+                // 4. Share Button
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _ShareButton(onPressed: _shareDeal),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDualActionFrame() {
+    final p = widget.product;
+    final isExpired = _timeLeft.inSeconds <= 0;
+    final hasActive = p.hasActiveTeamDeal && !isExpired;
+    final current = p.currentBuyers ?? 0;
+    final min = p.minBuyers ?? 0;
+    final savings = (p.price ?? 0) - (p.teamPrice ?? 0);
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            // LEFT SIDE: BUY ALONE
+            Expanded(
+              child: InkWell(
+                onTap: _buyAlone,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      const Text(
+                        "SOLO",
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      Text(
+                        "${p.price} XAF",
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Text(
+                        "Standard",
+                        style: TextStyle(fontSize: 8, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Divider
+            VerticalDivider(
+              width: 1,
+              color: Colors.grey.shade200,
+              indent: 5,
+              endIndent: 5,
+            ),
+
+            // RIGHT SIDE: GROUP (with states)
+            Expanded(
+              child: hasActive
+                  ? _PulsingGroupCard(
+                      onTap: _joinGroup,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        color: const Color(0xFFE8F5E9),
+                        child: Column(
+                          children: [
+                            const Text(
+                              "GROUP",
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF00C471),
+                              ),
+                            ),
+                            Text(
+                              "${p.teamPrice} XAF",
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF00C471),
+                              ),
+                            ),
+                            Text(
+                              "-${p.discountPercent}% OFF • Save ${savings.toStringAsFixed(0)} XAF",
+                              style: const TextStyle(
+                                fontSize: 8,
+                                color: Colors.red,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            // 👇 NEW: Neighbourhood badge (if present)
+                            if (p.activePoolNeighbourhoodName != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade100,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.location_on,
+                                        size: 10,
+                                        color: Colors.blue.shade700,
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        p.activePoolNeighbourhoodName!,
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          color: Colors.blue.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 4),
+                            LinearProgressIndicator(
+                              value: (current / min).clamp(0.0, 1.0),
+                              minHeight: 3,
+                              backgroundColor: Colors.grey.shade300,
+                              valueColor: const AlwaysStoppedAnimation(
+                                Color(0xFF00C471),
+                              ),
+                            ),
+                            Text(
+                              "$current/$min joined",
+                              style: const TextStyle(fontSize: 8),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : InkWell(
+                      onTap: _startGroup,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        color: Colors.blue.shade50,
+                        child: const Column(
+                          children: [
+                            Icon(Icons.group_add, size: 16, color: Colors.blue),
+                            Text(
+                              "START GROUP",
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                            Text(
+                              "Be the first",
+                              style: TextStyle(fontSize: 7, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ==================== Pulsing Animation Wrapper ====================
+class _PulsingGroupCard extends StatefulWidget {
+  final VoidCallback onTap;
+  final Widget child;
+  const _PulsingGroupCard({required this.onTap, required this.child});
+
+  @override
+  State<_PulsingGroupCard> createState() => _PulsingGroupCardState();
+}
+
+class _PulsingGroupCardState extends State<_PulsingGroupCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    )..repeat(reverse: true);
+    _animation = Tween<double>(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _animation,
+        builder: (context, child) {
+          return Transform.scale(scale: _animation.value, child: child);
+        },
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ==================== Reusable Share Button ====================
+class _ShareButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  const _ShareButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: IconButton(
+        icon: const Icon(Icons.share, size: 16),
+        onPressed: onPressed,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        padding: EdgeInsets.zero,
       ),
     );
   }

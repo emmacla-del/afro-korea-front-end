@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/user_store.dart';
+import '../models/neighbourhood.dart'; // contains Region, Division, Neighbourhood classes
 
 class RegisterScreen extends StatefulWidget {
   final VoidCallback onAuthenticated;
   final VoidCallback onGoToLogin;
-  final String? initialReferralCode; // 👈 NEW
+  final String? initialReferralCode;
 
   const RegisterScreen({
     super.key,
@@ -26,19 +27,77 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _displayNameController = TextEditingController(); // for supplier
   final _cityController = TextEditingController();
   final _businessRegController = TextEditingController();
-  // 👇 NEW controllers
-  final _nameController = TextEditingController(); // for all users (optional)
+  final _nameController = TextEditingController();
   final _referralController = TextEditingController();
 
   String _role = 'CUSTOMER';
   String _country = 'Nigeria';
   bool _isSubmitting = false;
 
+  // New state for cascading location
+  List<Neighbourhood> _allNeighbourhoods = [];
+  bool _loadingNeighbourhoods = true;
+  String? _neighbourhoodsError;
+
+  Region? _selectedRegion;
+  Division? _selectedDivision;
+  Neighbourhood? _selectedNeighbourhood;
+
+  // Derived lists
+  List<Region> get _regions {
+    final regions = _allNeighbourhoods
+        .map((n) => n.division.region)
+        .toSet()
+        .toList();
+    regions.sort((a, b) => a.name.compareTo(b.name));
+    return regions;
+  }
+
+  List<Division> get _divisions {
+    if (_selectedRegion == null) return [];
+    return _allNeighbourhoods
+        .where((n) => n.division.region.id == _selectedRegion!.id)
+        .map((n) => n.division)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  List<Neighbourhood> get _neighbourhoods {
+    if (_selectedDivision == null) return [];
+    return _allNeighbourhoods
+        .where((n) => n.division.id == _selectedDivision!.id)
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
   @override
   void initState() {
     super.initState();
     if (widget.initialReferralCode != null) {
       _referralController.text = widget.initialReferralCode!;
+    }
+    _loadNeighbourhoods();
+  }
+
+  Future<void> _loadNeighbourhoods() async {
+    setState(() {
+      _loadingNeighbourhoods = true;
+      _neighbourhoodsError = null;
+    });
+    try {
+      final neighbourhoods = await ApiService.instance.fetchNeighbourhoods();
+      if (!mounted) return;
+      setState(() {
+        _allNeighbourhoods = neighbourhoods;
+        _loadingNeighbourhoods = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _neighbourhoodsError = e.toString();
+        _loadingNeighbourhoods = false;
+      });
     }
   }
 
@@ -50,8 +109,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _displayNameController.dispose();
     _cityController.dispose();
     _businessRegController.dispose();
-    _nameController.dispose(); // 👈
-    _referralController.dispose(); // 👈
+    _nameController.dispose();
+    _referralController.dispose();
     super.dispose();
   }
 
@@ -82,6 +141,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         referralCode: _referralController.text.trim().isNotEmpty
             ? _referralController.text.trim()
             : null,
+        neighbourhoodId:
+            _selectedNeighbourhood?.id, // pass the selected neighbourhood ID
       );
       final token = (response['access_token'] ?? '').toString().trim();
       final user = response['user'];
@@ -123,7 +184,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // 👇 NEW: Full name (optional)
+              // Full name (optional)
               TextFormField(
                 controller: _nameController,
                 enabled: !_isSubmitting,
@@ -134,6 +195,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
+              // Phone
               TextFormField(
                 controller: _phoneController,
                 enabled: !_isSubmitting,
@@ -147,8 +209,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
+              // Role dropdown
               DropdownButtonFormField<String>(
-                value: _role,
+                initialValue: _role,
                 decoration: const InputDecoration(
                   labelText: 'Role',
                   border: OutlineInputBorder(),
@@ -165,6 +228,114 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
+              // --- Cascading location dropdowns ---
+              if (_loadingNeighbourhoods)
+                const Center(child: CircularProgressIndicator())
+              else if (_neighbourhoodsError != null)
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Error loading locations: $_neighbourhoodsError',
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _loadNeighbourhoods,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                )
+              else ...[
+                // Region dropdown
+                DropdownButtonFormField<Region?>(
+                  initialValue: _selectedRegion,
+                  decoration: const InputDecoration(
+                    labelText: 'Region',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<Region?>(
+                      value: null,
+                      child: Text('Select a region'),
+                    ),
+                    ..._regions.map(
+                      (region) => DropdownMenuItem<Region?>(
+                        value: region,
+                        child: Text(region.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: _isSubmitting
+                      ? null
+                      : (region) {
+                          setState(() {
+                            _selectedRegion = region;
+                            _selectedDivision = null;
+                            _selectedNeighbourhood = null;
+                          });
+                        },
+                ),
+                const SizedBox(height: 12),
+
+                // Division dropdown (enabled only if region selected)
+                DropdownButtonFormField<Division?>(
+                  initialValue: _selectedDivision,
+                  decoration: const InputDecoration(
+                    labelText: 'Division',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<Division?>(
+                      value: null,
+                      child: Text('Select a division'),
+                    ),
+                    ..._divisions.map(
+                      (div) => DropdownMenuItem<Division?>(
+                        value: div,
+                        child: Text(div.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: _isSubmitting || _selectedRegion == null
+                      ? null
+                      : (div) {
+                          setState(() {
+                            _selectedDivision = div;
+                            _selectedNeighbourhood = null;
+                          });
+                        },
+                ),
+                const SizedBox(height: 12),
+
+                // Neighbourhood dropdown (enabled only if division selected)
+                DropdownButtonFormField<Neighbourhood?>(
+                  initialValue: _selectedNeighbourhood,
+                  decoration: const InputDecoration(
+                    labelText: 'Neighbourhood',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<Neighbourhood?>(
+                      value: null,
+                      child: Text('Select a neighbourhood'),
+                    ),
+                    ..._neighbourhoods.map(
+                      (hood) => DropdownMenuItem<Neighbourhood?>(
+                        value: hood,
+                        child: Text(hood.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: _isSubmitting || _selectedDivision == null
+                      ? null
+                      : (hood) {
+                          setState(() => _selectedNeighbourhood = hood);
+                        },
+                ),
+              ],
+              const SizedBox(height: 12),
+
+              // Supplier-specific fields
               if (_role == 'SUPPLIER') ...[
                 TextFormField(
                   controller: _displayNameController,
@@ -179,7 +350,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _country,
+                  initialValue: _country,
                   decoration: const InputDecoration(
                     labelText: 'Country',
                     border: OutlineInputBorder(),
@@ -221,7 +392,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 12),
               ],
 
-              // 👇 NEW: Referral code (optional)
+              // Referral code
               TextFormField(
                 controller: _referralController,
                 enabled: !_isSubmitting,
@@ -232,6 +403,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
+              // Password
               TextFormField(
                 controller: _passwordController,
                 enabled: !_isSubmitting,
@@ -249,6 +421,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
+              // Confirm password
               TextFormField(
                 controller: _confirmPasswordController,
                 enabled: !_isSubmitting,
@@ -264,6 +437,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 16),
 
+              // Submit button
               FilledButton(
                 onPressed: _isSubmitting ? null : _submit,
                 child: _isSubmitting
@@ -276,6 +450,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 8),
 
+              // Login link
               TextButton(
                 onPressed: _isSubmitting ? null : widget.onGoToLogin,
                 child: const Text('Already have an account? Sign in'),

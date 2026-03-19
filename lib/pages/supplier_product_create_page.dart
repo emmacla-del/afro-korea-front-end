@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
+import '../models/neighbourhood.dart'; // 👈 NEW
 
 class SupplierProductCreatePage extends StatefulWidget {
   const SupplierProductCreatePage({super.key});
@@ -20,10 +21,43 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
   final _stockController = TextEditingController();
   final _currencyController = TextEditingController(text: 'XAF');
 
+  // 👇 NEW: neighbourhood state
+  List<Neighbourhood> _neighbourhoods = [];
+  String? _selectedNeighbourhoodId;
+  bool _neighbourhoodsLoading = true;
+  String? _neighbourhoodsError;
+
   final List<XFile> _selectedImages = [];
   bool _isLoading = false;
 
   final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNeighbourhoods();
+  }
+
+  Future<void> _loadNeighbourhoods() async {
+    setState(() {
+      _neighbourhoodsLoading = true;
+      _neighbourhoodsError = null;
+    });
+    try {
+      final neighbourhoods = await ApiService.instance.fetchNeighbourhoods();
+      if (!mounted) return;
+      setState(() {
+        _neighbourhoods = neighbourhoods;
+        _neighbourhoodsLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _neighbourhoodsError = e.toString();
+        _neighbourhoodsLoading = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -64,14 +98,22 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
       final stock = int.parse(_stockController.text.trim());
       final currency = _currencyController.text.trim().toUpperCase();
 
-      // ✅ SKU not passed — auto-generated on backend
-      await ApiService.instance.createSupplierProductWithImages({
+      // 👇 NEW: include neighbourhoodId in fields (optional)
+      final fields = {
         'product_name': name,
         'description': ?description,
         'price': price.toString(),
         'stock': stock.toString(),
         'currency': currency,
-      }, _selectedImages);
+        if (_selectedNeighbourhoodId != null)
+          'neighbourhoodId':
+              _selectedNeighbourhoodId, // requires backend support
+      };
+
+      await ApiService.instance.createSupplierProductWithImages(
+        fields,
+        _selectedImages,
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -248,6 +290,48 @@ class _SupplierProductCreatePageState extends State<SupplierProductCreatePage> {
                     },
                   ),
                   const SizedBox(height: 16),
+
+                  // 👇 NEW: Neighbourhood dropdown
+                  if (_neighbourhoodsLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_neighbourhoodsError != null)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Error loading neighbourhoods: $_neighbourhoodsError',
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _loadNeighbourhoods,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    )
+                  else
+                    DropdownButtonFormField<String?>(
+                      initialValue: _selectedNeighbourhoodId,
+                      decoration: const InputDecoration(
+                        labelText: 'Restrict to neighbourhood (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Global (anywhere)'),
+                        ),
+                        ..._neighbourhoods.map(
+                          (n) => DropdownMenuItem<String?>(
+                            value: n.id,
+                            child: Text(n.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) =>
+                          setState(() => _selectedNeighbourhoodId = val),
+                    ),
+                  const SizedBox(height: 16),
+
                   ElevatedButton.icon(
                     onPressed: _pickImages,
                     icon: const Icon(Icons.image),

@@ -4,34 +4,48 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '^3.10.0'   # 👈 added SDK constraint
+  sdk: '^3.10.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
+  # UI & Utilities
   cupertino_icons: ^1.0.8
-  http: ^1.5.0
-  file_picker: ^10.3.10
-  dio: ^5.4.0
-  flutter_riverpod: ^2.4.0
   intl: ^0.19.0
+  transparent_image: ^2.0.0
+
+  # Networking & Storage
+  http: ^1.5.0
+  dio: ^5.4.0
   shared_preferences: ^2.1.1
   flutter_secure_storage: ^9.2.4
+
+  # State Management
+  flutter_riverpod: ^2.4.0
+
+  # File & Image Handling
+  file_picker: ^10.3.10
   image_picker: ^1.0.4
   mime_type: ^1.0.0
+
+  # Sharing & Notifications
   share_plus: ^10.1.4
+  flutter_local_notifications: ^17.0.0
+  timezone: ^0.9.4                # 👈 for scheduling local notifications
+  url_launcher: ^6.3.0            # 👈 for opening WhatsApp/SMS links
+
+  # Optional: for WhatsApp icon – uncomment if you want the exact icon
+  # font_awesome_flutter: ^10.7.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^6.0.0
   network_image_mock: ^2.1.1
 
 flutter:
   uses-material-design: true
-  # Add assets section when needed:
   # assets:
   #   - images/
   #   - icons/

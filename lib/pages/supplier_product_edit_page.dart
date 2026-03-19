@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../api/supplier_api.dart';
 import '../models/supplier_product.dart';
 import '../services/api_service.dart';
+import '../models/neighbourhood.dart'; // 👈 NEW
 
 class SupplierProductEditPage extends StatefulWidget {
   final SupplierProduct product;
@@ -26,6 +27,12 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
   bool _isSaving = false;
   bool _isDeleting = false;
 
+  // 👇 NEW: neighbourhood state
+  List<Neighbourhood> _neighbourhoods = [];
+  String? _selectedNeighbourhoodId;
+  bool _neighbourhoodsLoading = true;
+  String? _neighbourhoodsError;
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +47,28 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     _poolStatus = widget.product.poolStatus.trim().toUpperCase();
     if (_poolStatus != 'OPEN' && _poolStatus != 'CLOSED') {
       _poolStatus = 'CLOSED';
+    }
+    _loadNeighbourhoods(); // 👈 NEW
+  }
+
+  Future<void> _loadNeighbourhoods() async {
+    setState(() {
+      _neighbourhoodsLoading = true;
+      _neighbourhoodsError = null;
+    });
+    try {
+      final neighbourhoods = await ApiService.instance.fetchNeighbourhoods();
+      if (!mounted) return;
+      setState(() {
+        _neighbourhoods = neighbourhoods;
+        _neighbourhoodsLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _neighbourhoodsError = e.toString();
+        _neighbourhoodsLoading = false;
+      });
     }
   }
 
@@ -183,129 +212,178 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // 👇 UPDATED: team deal dialog with neighbourhood dropdown
   void _showCreateTeamDealDialog() {
     final teamPriceController = TextEditingController();
     final minBuyersController = TextEditingController(text: '2');
     final formKey = GlobalKey<FormState>();
 
+    // Local state for dropdown inside dialog
+    String? localNeighbourhoodId;
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Create Team Deal'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: teamPriceController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Team Price (FCFA)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a team price';
-                  }
-                  if (int.tryParse(value) == null || int.parse(value) <= 0) {
-                    return 'Enter a valid positive number';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: minBuyersController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Minimum Buyers',
-                  border: OutlineInputBorder(),
-                  hintText: '2',
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter minimum buyers';
-                  }
-                  final intValue = int.tryParse(value);
-                  if (intValue == null || intValue < 2) {
-                    return 'Minimum must be at least 2';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-
-              if (widget.product.variantId == null) {
-                Navigator.pop(dialogContext);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        '❌ This product has no variant. Cannot create team deal.',
-                      ),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Create Team Deal'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: teamPriceController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Team Price (FCFA)',
+                      border: OutlineInputBorder(),
                     ),
-                  );
-                }
-                return;
-              }
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter a team price';
+                      }
+                      if (int.tryParse(value) == null ||
+                          int.parse(value) <= 0) {
+                        return 'Enter a valid positive number';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: minBuyersController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Minimum Buyers',
+                      border: OutlineInputBorder(),
+                      hintText: '2',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter minimum buyers';
+                      }
+                      final intValue = int.tryParse(value);
+                      if (intValue == null || intValue < 2) {
+                        return 'Minimum must be at least 2';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  // 👇 NEW: Neighbourhood dropdown
+                  if (_neighbourhoodsLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_neighbourhoodsError != null)
+                    Row(
+                      children: [
+                        Expanded(child: Text('Error: $_neighbourhoodsError')),
+                        TextButton(
+                          onPressed: () {
+                            _loadNeighbourhoods();
+                            setDialogState(() {});
+                          },
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    )
+                  else
+                    DropdownButtonFormField<String?>(
+                      initialValue: localNeighbourhoodId,
+                      decoration: const InputDecoration(
+                        labelText: 'Restrict to neighbourhood (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Global (anywhere)'),
+                        ),
+                        ..._neighbourhoods.map(
+                          (n) => DropdownMenuItem<String?>(
+                            value: n.id,
+                            child: Text(n.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) =>
+                          setDialogState(() => localNeighbourhoodId = val),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
 
-              Navigator.pop(dialogContext);
-              if (!mounted) return;
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Row(
-                    children: [
-                      SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                if (widget.product.variantId == null) {
+                  Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          '❌ This product has no variant. Cannot create team deal.',
                         ),
                       ),
-                      SizedBox(width: 12),
-                      Text('Creating team deal...'),
-                    ],
-                  ),
-                  duration: Duration(seconds: 30),
-                ),
-              );
+                    );
+                  }
+                  return;
+                }
 
-              try {
-                await ApiService.instance.createTeamDeal(
-                  variantId: widget.product.variantId!,
-                  teamPrice: int.parse(teamPriceController.text),
-                  minBuyers: int.parse(minBuyersController.text),
-                );
+                Navigator.pop(ctx);
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('✅ Team deal created!')),
+                  const SnackBar(
+                    content: Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Text('Creating team deal...'),
+                      ],
+                    ),
+                    duration: Duration(seconds: 30),
+                  ),
                 );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
-              }
-            },
-            child: const Text('Launch Deal'),
-          ),
-        ],
+
+                try {
+                  await ApiService.instance.createTeamDeal(
+                    variantId: widget.product.variantId!,
+                    teamPrice: int.parse(teamPriceController.text),
+                    minBuyers: int.parse(minBuyersController.text),
+                    neighbourhoodId: localNeighbourhoodId, // 👈 NEW
+                  );
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✅ Team deal created!')),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+                }
+              },
+              child: const Text('Launch Deal'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -556,7 +634,7 @@ class _SupplierProductEditPageState extends State<SupplierProductEditPage> {
 }
 
 // -------------------------------------------------------------------------
-// Full screen image viewer
+// Full screen image viewer (unchanged)
 // -------------------------------------------------------------------------
 class _ImageViewerPage extends StatefulWidget {
   final List<String> images;
@@ -660,7 +738,7 @@ class _ImageViewerPageState extends State<_ImageViewerPage> {
 }
 
 // -------------------------------------------------------------------------
-// Helpers
+// Helpers (unchanged)
 // -------------------------------------------------------------------------
 SupplierProduct _mergeUpdatedProduct({
   required SupplierProduct original,

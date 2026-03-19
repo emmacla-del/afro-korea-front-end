@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mime_type/mime_type.dart' as mime;
 import '../models/product.dart';
 import '../models/supplier_product.dart';
+import '../models/neighbourhood.dart';
 import 'user_store.dart';
 
 class ApiException implements Exception {
@@ -93,6 +94,7 @@ class ApiService {
     Map<String, dynamic>? supplierData,
     String? name,
     String? referralCode,
+    String? neighbourhoodId,
   }) async {
     try {
       final Map<String, dynamic> requestBody = {
@@ -102,6 +104,8 @@ class ApiService {
         if (name != null && name.isNotEmpty) 'name': name,
         if (referralCode != null && referralCode.isNotEmpty)
           'referralCode': referralCode,
+        if (neighbourhoodId != null && neighbourhoodId.isNotEmpty)
+          'neighbourhoodId': neighbourhoodId,
       };
       if (supplierData != null) {
         requestBody['supplierData'] = supplierData;
@@ -153,13 +157,87 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
+  // User Profile
+  // -------------------------------------------------------------------------
+
+  /// Fetch the current user's profile (includes neighbourhood object)
+  Future<Map<String, dynamic>> getUserProfile() async {
+    try {
+      debugPrint('📡 Fetching user profile from /user/profile');
+      final response = await _dio.get<Map<String, dynamic>>('/user/profile');
+      if (response.statusCode == 200) {
+        return response.data ?? {};
+      }
+      throw ApiException(
+        message: 'Failed to fetch user profile',
+        statusCode: response.statusCode,
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  /// Update the current user's profile (e.g., neighbourhood)
+  Future<void> updateProfile({String? neighbourhoodId}) async {
+    try {
+      final data = <String, dynamic>{};
+      if (neighbourhoodId != null) {
+        data['neighbourhoodId'] = neighbourhoodId;
+      }
+      await _dio.patch('/user/profile', data: data);
+      debugPrint('✅ Profile updated');
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Neighbourhood endpoints
+  // -------------------------------------------------------------------------
+
+  /// Fetch list of neighbourhoods (with nested division and region)
+  Future<List<Neighbourhood>> fetchNeighbourhoods() async {
+    try {
+      debugPrint('📡 Fetching neighbourhoods from /neighbourhoods');
+      final response = await _dio.get<List<dynamic>>('/neighbourhoods');
+      if (response.statusCode == 200) {
+        final data = response.data ?? [];
+        return data
+            .map((json) => Neighbourhood.fromJson(json as Map<String, dynamic>))
+            .toList();
+      }
+      throw ApiException(
+        message: 'Failed to fetch neighbourhoods',
+        statusCode: response.statusCode,
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Customer endpoints
   // -------------------------------------------------------------------------
 
-  Future<List<Product>> fetchProducts() async {
+  Future<List<Product>> fetchProducts({bool nearMe = false}) async {
     try {
-      debugPrint('📡 Fetching products from /products');
-      final response = await _dio.get<List<dynamic>>('/products');
+      debugPrint('📡 Fetching products from /products (nearMe: $nearMe)');
+      final response = await _dio.get<List<dynamic>>(
+        '/products',
+        queryParameters: {'nearMe': nearMe},
+      );
 
       if (response.statusCode == 200) {
         final data = response.data ?? [];
@@ -208,6 +286,29 @@ class ApiService {
         message: 'Unexpected error: $e',
         originalError: e,
         stackTrace: st,
+      );
+    }
+  }
+
+  /// Fetch a single product by ID
+  Future<Product> fetchProductById(String productId) async {
+    try {
+      debugPrint('📡 Fetching product by id: $productId');
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/products/$productId',
+      );
+      if (response.statusCode == 200) {
+        return Product.fromBackendApi(response.data ?? {});
+      }
+      throw ApiException(
+        message: 'Failed to fetch product',
+        statusCode: response.statusCode,
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        message: _getDioErrorMessage(e),
+        statusCode: e.response?.statusCode,
+        originalError: e,
       );
     }
   }
@@ -268,16 +369,19 @@ class ApiService {
     required String variantId,
     required int teamPrice,
     required int minBuyers,
+    String? neighbourhoodId,
   }) async {
     try {
       debugPrint('📡 Creating team deal for variant: $variantId');
+      final data = {
+        'variantId': variantId,
+        'teamPrice': teamPrice,
+        'minBuyers': minBuyers,
+        'neighbourhoodId': ?neighbourhoodId,
+      };
       final response = await _dio.post<Map<String, dynamic>>(
         '/pools/team',
-        data: {
-          'variantId': variantId,
-          'teamPrice': teamPrice,
-          'minBuyers': minBuyers,
-        },
+        data: data,
       );
       return response.data ?? {};
     } on DioException catch (e) {
@@ -359,7 +463,7 @@ class ApiService {
   }
 
   // -------------------------------------------------------------------------
-  // Referral endpoints (NEW)
+  // Referral endpoints
   // -------------------------------------------------------------------------
 
   Future<Map<String, dynamic>> generateReferralCode() async {

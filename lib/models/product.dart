@@ -1,6 +1,6 @@
 import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart';
-import 'product_category.dart'; // 👈 make sure this file exists
+import 'product_category.dart';
 
 @immutable
 class Product {
@@ -8,8 +8,8 @@ class Product {
   final String supplierId;
   final String title;
   final String? description;
-  final String? category; // free‑text category
-  final ProductCategory? catEnum; // 👈 new enum field
+  final String? category;
+  final ProductCategory? catEnum;
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -39,7 +39,7 @@ class Product {
       title: json['title'] ?? '',
       description: json['description'],
       category: json['category'],
-      catEnum: ProductCategoryExtension.fromRaw(json['catEnum']), // parse enum
+      catEnum: ProductCategoryExtension.fromRaw(json['catEnum']),
       isActive: json['isActive'] ?? true,
       createdAt: DateTime.parse(
         json['createdAt'] ?? DateTime.now().toIso8601String(),
@@ -55,8 +55,9 @@ class Product {
     );
   }
 
-  // Convenience getters
-  String get name => title; // for compatibility
+  // --- Convenience Getters ---
+  String get name => title;
+  String get currency => 'XAF';
 
   // Solo price from first variant
   double? get price {
@@ -64,79 +65,64 @@ class Product {
     return variants!.first['unitPriceXaf']?.toDouble();
   }
 
-  String get currency => 'XAF';
+  // --- Team Deal Properties (all refer to the first active pool) ---
 
-  // Team deal properties
-  bool get hasActiveTeamDeal {
+  /// Returns the first active TEAM_DEAL pool, or null if none.
+  Map<String, dynamic>? get _activePool {
     for (final variant in variants ?? []) {
       final pools = variant['pools'] as List?;
       if (pools != null && pools.isNotEmpty) {
-        final pool = pools.first as Map<String, dynamic>?;
-        if (pool != null &&
-            pool['dealType'] == 'TEAM_DEAL' &&
-            pool['status'] == 'OPEN') {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  double? get teamPrice {
-    for (final variant in variants ?? []) {
-      final pools = variant['pools'] as List?;
-      if (pools != null && pools.isNotEmpty) {
-        final pool = pools.first as Map<String, dynamic>?;
-        if (pool != null && pool['dealType'] == 'TEAM_DEAL') {
-          final price = pool['teamPrice'];
-          if (price != null) return price.toDouble();
+        for (final pool in pools) {
+          if (pool['dealType'] == 'TEAM_DEAL' && pool['status'] == 'OPEN') {
+            return pool as Map<String, dynamic>;
+          }
         }
       }
     }
     return null;
   }
 
-  int? get currentBuyers {
-    for (final variant in variants ?? []) {
-      final pools = variant['pools'] as List?;
-      if (pools != null && pools.isNotEmpty) {
-        final pool = pools.first as Map<String, dynamic>?;
-        if (pool?['dealType'] == 'TEAM_DEAL') {
-          return pool?['currentBuyers'] as int?;
-        }
-      }
-    }
+  /// Whether the product has an active team deal.
+  bool get hasActiveTeamDeal => _activePool != null;
+
+  /// Team price from the active pool.
+  double? get teamPrice => _activePool?['teamPrice']?.toDouble();
+
+  /// Current number of buyers from the active pool.
+  int? get currentBuyers => _activePool?['currentBuyers'] as int?;
+
+  /// Minimum buyers required from the active pool.
+  int? get minBuyers => _activePool?['minBuyers'] as int?;
+
+  /// ID of the active team deal pool.
+  String? get activeTeamDealPoolId => _activePool?['id'] as String?;
+
+  /// Expiry date of the active team deal.
+  DateTime? get expiryDate {
+    final pool = _activePool;
+    if (pool == null) return null;
+    // Try different possible field names; your backend uses 'deadlineAt'
+    final dateStr =
+        pool['deadlineAt'] ??
+        pool['endTime'] ??
+        pool['expiryDate'] ??
+        pool['expiresAt'];
+    if (dateStr != null) return DateTime.parse(dateStr);
     return null;
   }
 
-  int? get minBuyers {
-    for (final variant in variants ?? []) {
-      final pools = variant['pools'] as List?;
-      if (pools != null && pools.isNotEmpty) {
-        final pool = pools.first as Map<String, dynamic>?;
-        if (pool?['dealType'] == 'TEAM_DEAL') {
-          return pool?['minBuyers'] as int?;
-        }
-      }
-    }
-    return null;
+  /// Remaining time until the deal expires.
+  Duration get timeLeft {
+    final expiry = expiryDate;
+    if (expiry == null) return Duration.zero;
+    final diff = expiry.difference(DateTime.now());
+    return diff.isNegative ? Duration.zero : diff;
   }
 
-  String? get activeTeamDealPoolId {
-    for (final variant in variants ?? []) {
-      final pools = variant['pools'] as List?;
-      if (pools != null && pools.isNotEmpty) {
-        final pool = pools.first as Map<String, dynamic>?;
-        if (pool != null &&
-            pool['dealType'] == 'TEAM_DEAL' &&
-            pool['status'] == 'OPEN') {
-          return pool['id'] as String?;
-        }
-      }
-    }
-    return null;
-  }
+  /// Whether the active team deal has expired.
+  bool get isExpired => timeLeft.inSeconds <= 0;
 
+  /// Discount percentage based on solo and team prices.
   int get discountPercent {
     final solo = price;
     final group = teamPrice;
@@ -144,7 +130,11 @@ class Product {
     return ((solo - group) / solo * 100).round();
   }
 
-  // Display helpers
+  /// 👇 NEW: Neighbourhood name of the active pool (if restricted)
+  String? get activePoolNeighbourhoodName =>
+      _activePool?['neighbourhood']?['name'] as String?;
+
+  // --- Display Helpers ---
   String get displayCategory =>
       catEnum?.displayName ?? category ?? 'No category';
 
