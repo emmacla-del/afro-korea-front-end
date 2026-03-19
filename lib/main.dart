@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app/app_role.dart';
+import 'pages/blocked_screen.dart';
 import 'pages/login_screen.dart';
 import 'pages/register_screen.dart';
 import 'services/api_service.dart';
@@ -64,16 +65,17 @@ class AuthWrapper extends StatefulWidget {
 
 class _AuthWrapperState extends State<AuthWrapper> {
   AppRole? _role;
+  bool _isBlocked = false; // 👈 NEW
   bool _showRegister = false;
-  String? _initialReferralCode; // 👈 stores referral code from deep link
+  String? _initialReferralCode;
 
   @override
   void initState() {
     super.initState();
     _parseInitialReferralCode();
+    _restoreSession(); // 👈 NEW: check blocked status on cold start
   }
 
-  /// Reads the initial URI and extracts the 'ref' query parameter.
   void _parseInitialReferralCode() {
     try {
       final uri = Uri.base;
@@ -87,16 +89,45 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
   }
 
-  void _onAuthenticated() async {
+  /// On cold start, restore the session if a token exists.
+  /// Also checks isBlocked so a blocked user sees BlockedScreen immediately
+  /// without having to log in again.
+  Future<void> _restoreSession() async {
+    final token = await UserStore.getToken();
+    if (token == null) return; // no session — stay on login
+
     final roleStr = await UserStore.getUserRole();
+    final isBlocked = await UserStore.getIsBlocked(); // 👈 NEW
+
     final role = switch (roleStr?.toUpperCase()) {
       'SUPPLIER' => AppRole.supplier,
       'ADMIN' => AppRole.admin,
       _ => AppRole.customer,
     };
+
     if (!mounted) return;
     setState(() {
       _role = role;
+      _isBlocked = isBlocked; // 👈 NEW
+    });
+  }
+
+  /// Called by LoginScreen / RegisterScreen after a successful auth response.
+  /// The [userData] map comes directly from the backend login/register response.
+  void _onAuthenticated() async {
+    final roleStr = await UserStore.getUserRole();
+    final isBlocked = await UserStore.getIsBlocked(); // 👈 NEW
+
+    final role = switch (roleStr?.toUpperCase()) {
+      'SUPPLIER' => AppRole.supplier,
+      'ADMIN' => AppRole.admin,
+      _ => AppRole.customer,
+    };
+
+    if (!mounted) return;
+    setState(() {
+      _role = role;
+      _isBlocked = isBlocked; // 👈 NEW
       _showRegister = false;
     });
   }
@@ -105,7 +136,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
     await UserStore.clearAll();
     ApiService.instance.clearBearerToken();
     if (!mounted) return;
-    setState(() => _role = null);
+    setState(() {
+      _role = null;
+      _isBlocked = false; // 👈 NEW: reset on logout
+    });
   }
 
   void _onRoleChanged(AppRole newRole) {
@@ -114,6 +148,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   @override
   Widget build(BuildContext context) {
+    // 1. Authenticated but blocked — show blocked screen, nothing else
+    if (_role != null && _isBlocked) {
+      return BlockedScreen(onLogout: _onLogout); // 👈 NEW
+    }
+
+    // 2. Authenticated and not blocked — show the app
     if (_role != null) {
       return MainScaffold(
         role: _role!,
@@ -121,12 +161,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
         onLogout: _onLogout,
       );
     }
+
+    // 3. Not authenticated — show login or register
     if (_showRegister) {
       return RegisterScreen(
         onAuthenticated: _onAuthenticated,
         onGoToLogin: () => setState(() => _showRegister = false),
-        initialReferralCode:
-            _initialReferralCode, // 👈 pass code to register screen
+        initialReferralCode: _initialReferralCode,
       );
     }
     return LoginScreen(

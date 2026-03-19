@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/user_store.dart';
-import '../models/neighbourhood.dart'; // contains Region, Division, Neighbourhood classes
+import '../models/neighbourhood.dart';
 
 class RegisterScreen extends StatefulWidget {
   final VoidCallback onAuthenticated;
@@ -24,7 +24,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _displayNameController = TextEditingController(); // for supplier
+  final _displayNameController = TextEditingController();
   final _cityController = TextEditingController();
   final _businessRegController = TextEditingController();
   final _nameController = TextEditingController();
@@ -34,7 +34,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _country = 'Nigeria';
   bool _isSubmitting = false;
 
-  // New state for cascading location
   List<Neighbourhood> _allNeighbourhoods = [];
   bool _loadingNeighbourhoods = true;
   String? _neighbourhoodsError;
@@ -43,7 +42,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Division? _selectedDivision;
   Neighbourhood? _selectedNeighbourhood;
 
-  // Derived lists
   List<Region> get _regions {
     final regions = _allNeighbourhoods
         .map((n) => n.division.region)
@@ -130,6 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             'businessRegNumber': _businessRegController.text.trim(),
         };
       }
+
       final response = await ApiService.instance.register(
         _phoneController.text.trim(),
         _passwordController.text,
@@ -141,23 +140,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
         referralCode: _referralController.text.trim().isNotEmpty
             ? _referralController.text.trim()
             : null,
-        neighbourhoodId:
-            _selectedNeighbourhood?.id, // pass the selected neighbourhood ID
+        neighbourhoodId: _selectedNeighbourhood?.id,
       );
+
       final token = (response['access_token'] ?? '').toString().trim();
       final user = response['user'];
       if (token.isEmpty || user is! Map) {
         throw Exception('Invalid registration response from server');
       }
+
       final userId = (user['id'] ?? '').toString().trim();
       final role = (user['role'] ?? '').toString().trim().toUpperCase();
       if (userId.isEmpty || role.isEmpty) {
         throw Exception('Missing user information in registration response');
       }
+
       await UserStore.saveToken(token);
       await UserStore.saveUserId(userId);
       await UserStore.saveUserRole(role);
+      await UserStore.saveIsBlocked(user['isBlocked'] as bool? ?? false);
       ApiService.instance.setBearerToken(token);
+
       if (!mounted) return;
       widget.onAuthenticated();
     } catch (err) {
@@ -209,7 +212,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
-              // Role dropdown
+              // Role
               DropdownButtonFormField<String>(
                 initialValue: _role,
                 decoration: const InputDecoration(
@@ -228,7 +231,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 12),
 
-              // --- Cascading location dropdowns ---
+              // Cascading location dropdowns
               if (_loadingNeighbourhoods)
                 const Center(child: CircularProgressIndicator())
               else if (_neighbourhoodsError != null)
@@ -246,7 +249,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ],
                 )
               else ...[
-                // Region dropdown
                 DropdownButtonFormField<Region?>(
                   initialValue: _selectedRegion,
                   decoration: const InputDecoration(
@@ -259,25 +261,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Text('Select a region'),
                     ),
                     ..._regions.map(
-                      (region) => DropdownMenuItem<Region?>(
-                        value: region,
-                        child: Text(region.name),
+                      (r) => DropdownMenuItem<Region?>(
+                        value: r,
+                        child: Text(r.name),
                       ),
                     ),
                   ],
                   onChanged: _isSubmitting
                       ? null
-                      : (region) {
-                          setState(() {
-                            _selectedRegion = region;
-                            _selectedDivision = null;
-                            _selectedNeighbourhood = null;
-                          });
-                        },
+                      : (r) => setState(() {
+                          _selectedRegion = r;
+                          _selectedDivision = null;
+                          _selectedNeighbourhood = null;
+                        }),
                 ),
                 const SizedBox(height: 12),
 
-                // Division dropdown (enabled only if region selected)
                 DropdownButtonFormField<Division?>(
                   initialValue: _selectedDivision,
                   decoration: const InputDecoration(
@@ -290,24 +289,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Text('Select a division'),
                     ),
                     ..._divisions.map(
-                      (div) => DropdownMenuItem<Division?>(
-                        value: div,
-                        child: Text(div.name),
+                      (d) => DropdownMenuItem<Division?>(
+                        value: d,
+                        child: Text(d.name),
                       ),
                     ),
                   ],
                   onChanged: _isSubmitting || _selectedRegion == null
                       ? null
-                      : (div) {
-                          setState(() {
-                            _selectedDivision = div;
-                            _selectedNeighbourhood = null;
-                          });
-                        },
+                      : (d) => setState(() {
+                          _selectedDivision = d;
+                          _selectedNeighbourhood = null;
+                        }),
                 ),
                 const SizedBox(height: 12),
 
-                // Neighbourhood dropdown (enabled only if division selected)
                 DropdownButtonFormField<Neighbourhood?>(
                   initialValue: _selectedNeighbourhood,
                   decoration: const InputDecoration(
@@ -320,17 +316,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Text('Select a neighbourhood'),
                     ),
                     ..._neighbourhoods.map(
-                      (hood) => DropdownMenuItem<Neighbourhood?>(
-                        value: hood,
-                        child: Text(hood.name),
+                      (n) => DropdownMenuItem<Neighbourhood?>(
+                        value: n,
+                        child: Text(n.name),
                       ),
                     ),
                   ],
                   onChanged: _isSubmitting || _selectedDivision == null
                       ? null
-                      : (hood) {
-                          setState(() => _selectedNeighbourhood = hood);
-                        },
+                      : (n) => setState(() => _selectedNeighbourhood = n),
                 ),
               ],
               const SizedBox(height: 12),
@@ -437,7 +431,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Submit button
+              // Submit
               FilledButton(
                 onPressed: _isSubmitting ? null : _submit,
                 child: _isSubmitting
@@ -450,7 +444,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 8),
 
-              // Login link
               TextButton(
                 onPressed: _isSubmitting ? null : widget.onGoToLogin,
                 child: const Text('Already have an account? Sign in'),

@@ -59,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await UserStore.saveToken(token);
       await UserStore.saveUserId(userId);
       await UserStore.saveUserRole(role);
+      await UserStore.saveIsBlocked(user['isBlocked'] as bool? ?? false);
       ApiService.instance.setBearerToken(token);
 
       if (!mounted) return;
